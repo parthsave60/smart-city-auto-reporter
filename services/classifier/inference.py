@@ -2,13 +2,14 @@ import os
 import sys
 import json
 import io
+import threading
 import urllib.request
 from pathlib import Path
 
 import torch
 import torch.nn as nn
 from torchvision import models, transforms
-from PIL import Image, ImageFile
+from PIL import Image, ImageFile, ImageOps
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -29,6 +30,7 @@ class CivicClassifierService:
         self.class_to_issue_type = {}
         self.confidence_threshold = 0.55
         self.transform = None
+        self._inference_lock = threading.Lock()
 
         self._init_transforms()
         self._load_metadata()
@@ -113,59 +115,63 @@ class CivicClassifierService:
         self._load_model()
 
     def _fetch_image(self, image_source):
-        """Load image from URL, file path, bytes, base64, or PIL Image"""
+        """Load image from URL, file path, bytes, base64, or PIL Image with EXIF orientation normalization"""
         if isinstance(image_source, Image.Image):
-            return image_source.convert("RGB")
+            return ImageOps.exif_transpose(image_source.convert("RGB"))
 
         if isinstance(image_source, bytes):
-            return Image.open(io.BytesIO(image_source)).convert("RGB")
+            img = Image.open(io.BytesIO(image_source)).convert("RGB")
+            return ImageOps.exif_transpose(img)
 
         if isinstance(image_source, str):
             # Base64 string
             if "base64," in image_source:
                 import base64
                 b64_data = image_source.split("base64,", 1)[1]
-                return Image.open(io.BytesIO(base64.b64decode(b64_data))).convert("RGB")
+                img = Image.open(io.BytesIO(base64.b64decode(b64_data))).convert("RGB")
+                return ImageOps.exif_transpose(img)
 
             # Remote URL (Cloudinary / CDN)
             if image_source.startswith("http://") or image_source.startswith("https://"):
+                url = image_source
+                # Optimize Cloudinary URLs for standard format and bandwidth
+                if "res.cloudinary.com" in url:
+                    if "/image/upload/" in url and "/f_jpg" not in url:
+                        url = url.replace("/image/upload/", "/image/upload/f_jpg,q_auto,w_1280,c_limit/")
+                    if url.lower().endswith(".heic"):
+                        url = url[:-5] + ".jpg"
+
                 import ssl
                 ctx = ssl._create_unverified_context()
                 req = urllib.request.Request(
-                    image_source,
+                    url,
                     headers={
                         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                         "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
                     }
                 )
-                with urllib.request.urlopen(req, timeout=15, context=ctx) as resp:
+                with urllib.request.urlopen(req, timeout=25, context=ctx) as resp:
                     data = resp.read()
-                return Image.open(io.BytesIO(data)).convert("RGB")
+                img = Image.open(io.BytesIO(data)).convert("RGB")
+                return ImageOps.exif_transpose(img)
             
             if os.path.exists(image_source):
-                return Image.open(image_source).convert("RGB")
+                img = Image.open(image_source).convert("RGB")
+                return ImageOps.exif_transpose(img)
 
         raise ValueError(f"Unsupported image source: {type(image_source)}")
 
     def predict(self, image_source):
         """
-        Run inference on an image.
-        Returns:
-        {
-            "predictedClass": "...",
-            "confidence": 0.95,
-            "classIndex": 0,
-            "issueTypeId": "pothole",
-            "isUncertain": False,
-            "topPredictions": [...]
-        }
+        Run inference on an image with thread synchronization.
         """
         image = self._fetch_image(image_source)
         input_tensor = self.transform(image).unsqueeze(0).to(self.device)
 
-        with torch.no_grad():
-            outputs = self.model(input_tensor)
-            probs = torch.softmax(outputs, dim=1).squeeze(0)
+        with self._inference_lock:
+            with torch.no_grad():
+                outputs = self.model(input_tensor)
+                probs = torch.softmax(outputs, dim=1).squeeze(0)
 
         top_probs, top_indices = torch.topk(probs, min(3, len(probs)))
         top_probs = top_probs.cpu().numpy().tolist()

@@ -45,21 +45,20 @@ export default function StepUpload({ reportData, updateReportData, onNext }) {
     })
 
     try {
-      // Background FileReader for durable dataURL
-      const reader = new FileReader()
-      reader.onload = (e) => {
-        updateReportData({
-          imagePreview: e.target.result,
-        })
-      }
-      reader.readAsDataURL(file)
-
-      // Upload to Cloudinary
+      // Upload to Cloudinary with compression & isolation
       const cloudinaryResult = await uploadImageToCloudinary(file)
       console.log('Image uploaded to Cloudinary successfully:', cloudinaryResult.imageUrl)
 
+      // Clean up object URL to prevent memory leaks on mobile
+      try {
+        URL.revokeObjectURL(instantPreviewUrl)
+      } catch (e) {
+        // ignore
+      }
+
       updateReportData({
         image: file,
+        imagePreview: cloudinaryResult.imageUrl,
         imageUrl: cloudinaryResult.imageUrl,
         cloudinaryPublicId: cloudinaryResult.publicId,
         imageFormat: cloudinaryResult.format,

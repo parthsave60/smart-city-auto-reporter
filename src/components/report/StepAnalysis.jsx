@@ -106,13 +106,20 @@ export default function StepAnalysis({ reportData, updateReportData, onNext, onB
         // RULE 1: INDEPENDENT CIVIC ISSUE VALIDATION GATE
         // Rejects screenshots, normal photos, food, pets, random objects, and blurry images
         // ============================================================
-        const isExplicitlyRejected = Boolean(
+        const isConfirmedNonCivicOrUnclear = Boolean(
           validationResult && 
-          validationResult.civicIssueDetected === false && 
-          validationResult.source !== 'error_fallback'
+          (validationResult.isUnclear || 
+           (validationResult.civicIssueDetected === false && (
+             validationResult.reason?.toLowerCase().includes('non-civic') ||
+             validationResult.reason?.toLowerCase().includes('screenshot') ||
+             validationResult.reason?.toLowerCase().includes('food') ||
+             validationResult.reason?.toLowerCase().includes('pet')
+           )))
         )
 
-        if (isExplicitlyRejected || (!isCivicValid && !isCustomConfident)) {
+        const isUnverified = !isCivicValid && !isCustomConfident
+
+        if ((isConfirmedNonCivicOrUnclear && !isCustomConfident) || isUnverified) {
           const isUnclear = Boolean(validationResult?.isUnclear)
           const validationMsg = validationResult?.message || (isUnclear
             ? "Unable to verify a civic issue. Please upload a clearer image."

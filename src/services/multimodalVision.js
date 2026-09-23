@@ -222,84 +222,105 @@ Return JSON ONLY with this schema:
   }
 
   // 2. Call backend Multimodal Vision Validation Service
+  const isLocalHost = typeof window !== 'undefined' && 
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
   const urlsToTry = [MULTIMODAL_API_URL];
-  if (!MULTIMODAL_API_URL.startsWith('/') && !urlsToTry.includes('/api/multimodal/validate')) {
+  // Only attempt relative fallback on localhost to avoid static SPA HTML rewrites on production
+  if (isLocalHost && !urlsToTry.includes('/api/multimodal/validate')) {
     urlsToTry.push('/api/multimodal/validate');
   }
 
+  const requestId = `val_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   let lastError = null;
 
-  for (const targetUrl of urlsToTry) {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    for (const targetUrl of urlsToTry) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 35000);
 
-    try {
-      let response;
-      if (typeof imageInput === 'string') {
-        response = await fetch(targetUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            imageUrl: imageInput,
-            classifierResult: classifierResult
-          }),
-          signal: controller.signal
-        });
-      } else {
-        const formData = new FormData();
-        formData.append('file', imageInput);
-        if (classifierResult) {
-          formData.append('classifierResult', JSON.stringify(classifierResult));
+      try {
+        let response;
+        const headers = {
+          'X-Request-ID': `${requestId}_att${attempt}`,
+          'X-Session-Timestamp': String(Date.now()),
+        };
+
+        if (typeof imageInput === 'string') {
+          headers['Content-Type'] = 'application/json';
+          response = await fetch(targetUrl, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              imageUrl: imageInput,
+              classifierResult: classifierResult
+            }),
+            signal: controller.signal
+          });
+        } else {
+          const formData = new FormData();
+          formData.append('file', imageInput);
+          if (classifierResult) {
+            formData.append('classifierResult', JSON.stringify(classifierResult));
+          }
+          response = await fetch(targetUrl, {
+            method: 'POST',
+            headers,
+            body: formData,
+            signal: controller.signal
+          });
         }
-        response = await fetch(targetUrl, {
-          method: 'POST',
-          body: formData,
-          signal: controller.signal
-        });
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          throw new Error(`Multimodal Vision API returned HTTP ${response.status}`);
+        }
+
+        const contentType = response.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+          throw new Error(`Invalid response format from ${targetUrl} (expected JSON, got ${contentType})`);
+        }
+
+        const data = await response.json();
+        console.log(`[MultimodalVision] [${requestId}] Validation API Response:`, data);
+
+        const isDetected = Boolean(data.civicIssueDetected && data.category && data.category !== 'None');
+        const finalCategory = isDetected ? (data.category || 'Civic Issue') : 'None';
+        const isUnclear = Boolean(data.isUnclear);
+
+        return {
+          civicIssueDetected: isDetected,
+          category: finalCategory,
+          confidence: Number(data.confidence) || (isDetected ? 0.88 : 0.0),
+          reason: data.reason || data.reasoning || (isDetected ? `Confirmed ${finalCategory}` : 'No civic issue detected'),
+          issueTypeId: mapCategoryToIssueTypeId(finalCategory),
+          isUnclear: isUnclear,
+          message: isDetected ? null : (data.message || (isUnclear 
+            ? "Unable to verify a civic issue. Please upload a clearer image." 
+            : "No civic issue detected in this image. Please upload an image showing a valid civic issue.")),
+          source: data.source || 'multimodal_vision'
+        };
+      } catch (error) {
+        clearTimeout(timeoutId);
+        lastError = error;
+        console.warn(`[MultimodalVision] [${requestId}] Attempt ${attempt + 1} to ${targetUrl} failed:`, error.message);
       }
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        throw new Error(`Multimodal Vision API returned HTTP ${response.status}`);
-      }
-
-      const data = await response.json();
-      console.log('[MultimodalVision] Validation API Response:', data);
-
-      const isDetected = Boolean(data.civicIssueDetected && data.category && data.category !== 'None');
-      const finalCategory = isDetected ? (data.category || 'Civic Issue') : 'None';
-      const isUnclear = Boolean(data.isUnclear);
-
-      return {
-        civicIssueDetected: isDetected,
-        category: finalCategory,
-        confidence: Number(data.confidence) || (isDetected ? 0.88 : 0.0),
-        reason: data.reason || data.reasoning || (isDetected ? `Confirmed ${finalCategory}` : 'No civic issue detected'),
-        issueTypeId: mapCategoryToIssueTypeId(finalCategory),
-        isUnclear: isUnclear,
-        message: isDetected ? null : (data.message || (isUnclear 
-          ? "Unable to verify a civic issue. Please upload a clearer image." 
-          : "No civic issue detected in this image. Please upload an image showing a valid civic issue.")),
-        source: data.source || 'multimodal_vision'
-      };
-    } catch (error) {
-      clearTimeout(timeoutId);
-      lastError = error;
-      console.warn(`[MultimodalVision] Request to ${targetUrl} failed:`, error.message);
     }
+    // Brief backoff before retry attempt
+    await new Promise((resolve) => setTimeout(resolve, 500));
   }
 
-  console.warn('[MultimodalVision] All validation endpoints failed:', lastError?.message);
+  console.warn(`[MultimodalVision] [${requestId}] All validation endpoints failed:`, lastError?.message);
 
   // If custom model confidently predicted a civic class, allow it safely
   if (classifierResult && classifierResult.confidence >= 0.40 && !classifierResult.isUncertain && 
-      classifierResult.predictedClass && !['Uncertain / Other', 'None', 'Unspecified'].includes(classifierResult.predictedClass)) {
+      classifierResult.predictedClass && !['Uncertain / Other', 'None', 'Unspecified', 'Civic Issue (Inspection Needed)'].includes(classifierResult.predictedClass)) {
     return {
       civicIssueDetected: true,
       category: classifierResult.predictedClass,
       confidence: classifierResult.confidence,
       reason: `Confirmed ${classifierResult.predictedClass} on public infrastructure.`,
-      issueTypeId: classifierResult.issueTypeId || 'other',
+      issueTypeId: classifierResult.issueTypeId || mapCategoryToIssueTypeId(classifierResult.predictedClass) || 'other',
       isUnclear: false,
       message: null,
       source: 'classifier_safe_fallback'

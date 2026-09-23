@@ -14,9 +14,10 @@ Flow:
 import io
 import math
 import base64
+import threading
 import urllib.request
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 import torch
 import torchvision.transforms as T
 from torchvision.models import mobilenet_v3_large, MobileNet_V3_Large_Weights
@@ -60,35 +61,48 @@ class MultimodalVisionValidator:
         self.model = mobilenet_v3_large(weights=self.weights).to(self.device).eval()
         self.categories = self.weights.meta['categories']
         self.preprocess = self.weights.transforms()
+        self._validate_lock = threading.Lock()
         print(f"[MultimodalVision] Initialized validator on device: {self.device}")
 
     def load_image(self, image_input):
+        """Load image from URL, bytes, base64, or PIL Image with EXIF orientation normalization"""
         if isinstance(image_input, Image.Image):
-            return image_input.convert('RGB')
+            return ImageOps.exif_transpose(image_input.convert('RGB'))
         
         if isinstance(image_input, bytes):
-            return Image.open(io.BytesIO(image_input)).convert('RGB')
+            img = Image.open(io.BytesIO(image_input)).convert('RGB')
+            return ImageOps.exif_transpose(img)
             
         if isinstance(image_input, str):
             if image_input.startswith(('http://', 'https://')):
+                url = image_input
+                # Optimize Cloudinary URLs for standard format and bandwidth
+                if "res.cloudinary.com" in url:
+                    if "/image/upload/" in url and "/f_jpg" not in url:
+                        url = url.replace("/image/upload/", "/image/upload/f_jpg,q_auto,w_1280,c_limit/")
+                    if url.lower().endswith(".heic"):
+                        url = url[:-5] + ".jpg"
+
                 import ssl
                 ctx = ssl._create_unverified_context()
                 req = urllib.request.Request(
-                    image_input,
+                    url,
                     headers={
                         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                         'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
                     }
                 )
-                with urllib.request.urlopen(req, timeout=15, context=ctx) as resp:
-                    return Image.open(io.BytesIO(resp.read())).convert('RGB')
+                with urllib.request.urlopen(req, timeout=25, context=ctx) as resp:
+                    img = Image.open(io.BytesIO(resp.read())).convert('RGB')
+                    return ImageOps.exif_transpose(img)
             
             # Base64 string
             b64_str = image_input
             if ',' in b64_str:
                 b64_str = b64_str.split(',', 1)[1]
             raw_bytes = base64.b64decode(b64_str)
-            return Image.open(io.BytesIO(raw_bytes)).convert('RGB')
+            img = Image.open(io.BytesIO(raw_bytes)).convert('RGB')
+            return ImageOps.exif_transpose(img)
 
         raise ValueError("Unsupported image input type")
 
@@ -223,19 +237,28 @@ class MultimodalVisionValidator:
                 "source": "multimodal_vision"
             }
 
-        # Automatically query custom classifier if classifier_result was not passed
-        if classifier_result is None:
+        # Automatically query custom classifier if classifier_result was not passed or was uncertain/failed
+        is_result_valid = (
+            classifier_result and 
+            isinstance(classifier_result, dict) and
+            not classifier_result.get("isUncertain", False) and 
+            classifier_result.get("confidence", 0.0) >= 0.40 and 
+            classifier_result.get("predictedClass") not in ('Unspecified', 'other', 'Civic Issue', 'Civic Issue (Inspection Needed)', 'None', 'Uncertain / Other')
+        )
+        if not is_result_valid:
             try:
                 from services.classifier.inference import get_classifier_service
-                classifier_result = get_classifier_service().predict(pil_img)
+                fresh_res = get_classifier_service().predict(pil_img)
+                if fresh_res and not fresh_res.get("isUncertain", False) and fresh_res.get("confidence", 0.0) >= 0.40:
+                    classifier_result = fresh_res
             except Exception as e:
-                classifier_result = None
+                pass
 
         has_custom_civic_prediction = False
         custom_class = None
         custom_conf = 0.0
         custom_type = 'other'
-        if classifier_result:
+        if classifier_result and isinstance(classifier_result, dict):
             custom_conf = classifier_result.get("confidence", 0.0)
             custom_uncertain = classifier_result.get("isUncertain", False)
             custom_class = classifier_result.get("predictedClass")
@@ -244,12 +267,13 @@ class MultimodalVisionValidator:
                 custom_class not in ('Unspecified', 'other', 'Civic Issue', 'Civic Issue (Inspection Needed)', 'None', 'Uncertain / Other')):
                 has_custom_civic_prediction = True
 
-        # 2. Extract deep multimodal scene features with ImageNet backbone
+        # 2. Extract deep multimodal scene features with ImageNet backbone (synchronized)
         tensor = self.preprocess(pil_img).unsqueeze(0).to(self.device)
-        with torch.no_grad():
-            logits = self.model(tensor)
-            probs = torch.softmax(logits, dim=1)[0]
-            top5_probs, top5_indices = torch.topk(probs, 5)
+        with self._validate_lock:
+            with torch.no_grad():
+                logits = self.model(tensor)
+                probs = torch.softmax(logits, dim=1)[0]
+                top5_probs, top5_indices = torch.topk(probs, 5)
 
         top5_classes = [self.categories[idx.item()] for idx in top5_indices]
         top5_scores = [prob.item() for prob in top5_probs]

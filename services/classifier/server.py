@@ -14,12 +14,14 @@ from services.classifier.inference import get_classifier_service
 
 app = Flask(__name__)
 
-# Add CORS headers to all responses
+# Add CORS and Cache-Control headers to all responses
 @app.after_request
 def add_cors_headers(response):
     response.headers["Access-Control-Allow-Origin"] = "*"
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Request-ID, X-Session-Timestamp"
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
     return response
 
 @app.route("/api/health", methods=["GET"])
@@ -69,7 +71,7 @@ def classify():
 
     # 1. Check for JSON payload with imageUrl or imageBase64
     if request.is_json:
-        data = request.get_json() or {}
+        data = request.get_json(silent=True) or {}
         img_url = data.get("imageUrl") or data.get("image_url")
         img_b64 = data.get("imageBase64") or data.get("image_base64")
         if img_url:
@@ -120,7 +122,7 @@ def validate_multimodal():
     classifier_result = None
 
     if request.is_json:
-        data = request.get_json() or {}
+        data = request.get_json(silent=True) or {}
         img_url = data.get("imageUrl") or data.get("image_url")
         img_b64 = data.get("imageBase64") or data.get("image_base64")
         classifier_result = data.get("classifierResult") or data.get("classifier_result")
@@ -139,6 +141,22 @@ def validate_multimodal():
 
     if image_input is None and "imageUrl" in request.form:
         image_input = request.form["imageUrl"]
+
+    if classifier_result is None and "classifierResult" in request.form:
+        raw_cr = request.form["classifierResult"]
+        if isinstance(raw_cr, str):
+            try:
+                classifier_result = json.loads(raw_cr)
+            except Exception:
+                classifier_result = None
+        else:
+            classifier_result = raw_cr
+
+    if isinstance(classifier_result, str):
+        try:
+            classifier_result = json.loads(classifier_result)
+        except Exception:
+            classifier_result = None
 
     if image_input is None:
         return jsonify({
