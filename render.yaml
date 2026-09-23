@@ -14,9 +14,6 @@ services:
 
   - type: static
     name: smart-city-auto-reporter-web
-    runtime: static
-    region: oregon
-    plan: free
     branch: main
     buildCommand: "npm install && npm run build"
     staticPublishPath: "./dist"
