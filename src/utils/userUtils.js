@@ -1,5 +1,6 @@
 // List of email addresses that have Authority / Admin privileges
 export const AUTHORITY_EMAILS = [
+    "124@sjcem.edu.in",
     "124parth4014@sjcem.edu.in",
     "124parh4014@sjcme.edu.in",
     "admin@smartcity.com",

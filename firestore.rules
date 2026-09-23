@@ -15,6 +15,7 @@ service cloud.firestore {
     function isAuthority() {
       return isSignedIn() && (
         request.auth.token.email in [
+          '124@sjcem.edu.in',
           '124parth4014@sjcem.edu.in', 
           '124parh4014@sjcme.edu.in', 
           'admin@smartcity.com',

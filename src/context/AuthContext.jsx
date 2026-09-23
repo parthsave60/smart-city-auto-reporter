@@ -142,8 +142,31 @@ export function AuthProvider({ children }) {
         return result.user;
       } catch (err) {
         lastError = err;
-        if (err.code !== 'auth/invalid-credential' && err.code !== 'auth/wrong-password' && err.code !== 'auth/weak-password') {
+        if (err.code !== 'auth/invalid-credential' && err.code !== 'auth/wrong-password' && err.code !== 'auth/weak-password' && err.code !== 'auth/user-not-found') {
           break;
+        }
+      }
+    }
+
+    // If pre-authorized account doesn't exist yet in Firebase Auth, auto-provision it with the provided password
+    if (lastError && (lastError.code === 'auth/user-not-found' || lastError.code === 'auth/invalid-credential')) {
+      try {
+        const primaryPw = passwordsToTry[0];
+        const newCred = await createUserWithEmailAndPassword(auth, trimmedEmail, primaryPw);
+        try {
+          await saveUserProfile(newCred.user.uid, {
+            uid: newCred.user.uid,
+            email: trimmedEmail,
+            role: 'authority',
+            createdAt: new Date().toISOString()
+          });
+        } catch (dbErr) {
+          console.warn('[AuthContext] Firestore profile creation warning:', dbErr);
+        }
+        return newCred.user;
+      } catch (createErr) {
+        if (createErr.code === 'auth/email-already-in-use') {
+          throw new Error('Invalid Authority credentials. Please check your password.');
         }
       }
     }

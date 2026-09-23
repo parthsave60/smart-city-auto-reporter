@@ -414,7 +414,7 @@ const Login = () => {
                                                 type="email"
                                                 value={email}
                                                 onChange={(e) => setEmail(e.target.value)}
-                                                placeholder="124parth4014@sjcem.edu.in"
+                                                placeholder="124@sjcem.edu.in"
                                                 required
                                                 className="w-full pl-10 pr-4 py-2.5 bg-cream border border-cream-muted focus:border-accent outline-none font-body text-slate text-sm placeholder:text-slate-muted/50 transition-colors"
                                             />
