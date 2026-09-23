@@ -6,7 +6,7 @@
  * Operates independently of the custom 9-class PyTorch model.
  */
 
-const MULTIMODAL_API_URL = import.meta.env.VITE_MULTIMODAL_API_URL || 'http://localhost:8000/api/multimodal/validate';
+const MULTIMODAL_API_URL = import.meta.env.VITE_MULTIMODAL_API_URL || 'https://smart-city-classifier-api.onrender.com/api/multimodal/validate';
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
 const CATEGORY_TO_ID = {

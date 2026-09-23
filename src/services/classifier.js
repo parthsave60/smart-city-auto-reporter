@@ -5,7 +5,7 @@
  * Replaces Google Cloud Vision for civic issue identification.
  */
 
-const CLASSIFIER_URL = import.meta.env.VITE_CLASSIFIER_API_URL || 'http://localhost:8000/api/classify';
+const CLASSIFIER_URL = import.meta.env.VITE_CLASSIFIER_API_URL || 'https://smart-city-classifier-api.onrender.com/api/classify';
 
 /**
  * Classify a civic issue image
