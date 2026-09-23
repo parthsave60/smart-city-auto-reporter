@@ -12,11 +12,11 @@ services:
       - key: PYTHON_VERSION
         value: 3.11.9
 
-  - type: static
+  - type: web
     name: smart-city-auto-reporter-web
-    branch: main
+    runtime: static
     buildCommand: "npm install && npm run build"
-    staticPublishPath: "./dist"
+    staticPublishPath: "dist"
     routes:
       - type: rewrite
         source: "/*"
