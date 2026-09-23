@@ -1,0 +1,69 @@
+{
+  "Damaged concrete structures": {
+    "precision": 0.9910714285714286,
+    "recall": 0.9991816693944353,
+    "f1-score": 0.9951100244498777,
+    "support": 1222.0
+  },
+  "DamagedElectricalPoles": {
+    "precision": 0.9664634146341463,
+    "recall": 0.9664634146341463,
+    "f1-score": 0.9664634146341463,
+    "support": 328.0
+  },
+  "DamagedRoadSigns": {
+    "precision": 1.0,
+    "recall": 0.8974358974358975,
+    "f1-score": 0.9459459459459459,
+    "support": 39.0
+  },
+  "DeadAnimalsPollution": {
+    "precision": 0.9411764705882353,
+    "recall": 1.0,
+    "f1-score": 0.9696969696969697,
+    "support": 16.0
+  },
+  "FallenTrees": {
+    "precision": 0.9963031423290203,
+    "recall": 0.9908088235294118,
+    "f1-score": 0.9935483870967742,
+    "support": 1632.0
+  },
+  "Garbage": {
+    "precision": 0.7879518072289157,
+    "recall": 0.9703264094955489,
+    "f1-score": 0.8696808510638298,
+    "support": 337.0
+  },
+  "Graffitti": {
+    "precision": 0.9541284403669725,
+    "recall": 0.9904761904761905,
+    "f1-score": 0.9719626168224299,
+    "support": 210.0
+  },
+  "IllegalParking": {
+    "precision": 1.0,
+    "recall": 0.8571428571428571,
+    "f1-score": 0.9230769230769231,
+    "support": 7.0
+  },
+  "Potholes and RoadCracks": {
+    "precision": 0.958041958041958,
+    "recall": 0.7425474254742548,
+    "f1-score": 0.8366412213740458,
+    "support": 369.0
+  },
+  "accuracy": 0.9665865384615384,
+  "macro avg": {
+    "precision": 0.9550151846400752,
+    "recall": 0.9349314097314159,
+    "f1-score": 0.9413473726845493,
+    "support": 4160.0
+  },
+  "weighted avg": {
+    "precision": 0.9698411181623439,
+    "recall": 0.9665865384615384,
+    "f1-score": 0.9661728861818538,
+    "support": 4160.0
+  }
+}

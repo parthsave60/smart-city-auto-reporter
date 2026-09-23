@@ -1,8 +1,8 @@
-import React, { useState, useMemo, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { MapPin, Layers, Navigation, ChevronRight, AlertCircle, Map as MapIcon } from 'lucide-react'
+import { MapPin, Navigation, ChevronRight, AlertCircle, Map as MapIcon } from 'lucide-react'
 import { Card, StatusBadge, IssueTypeTag } from '../ui'
-import { GoogleMap, useJsApiLoader, MarkerF, InfoWindowF, HeatmapLayerF } from '@react-google-maps/api'
+import { GoogleMap, useJsApiLoader, MarkerF, InfoWindowF } from '@react-google-maps/api'
 import { darkMapStyles } from '../../services/maps'
 
 const containerStyle = {
@@ -11,57 +11,59 @@ const containerStyle = {
 };
 
 const center = {
-  lat: 37.7749, // Default San Francisco
-  lng: -122.4194
+  lat: 19.8055, // Default Region (e.g. Palghar / NH48 / Mumbai corridor)
+  lng: 72.8258
 };
 
-const libraries = ['visualization'];
+// Clean library array without deprecated visualization
+const libraries = [];
 
-const statusColors = {
-  pending: '#EAB308',
-  open: '#EAB308',
-  'in-progress': '#3B82F6',
-  verified: '#3B82F6',
-  flagged: '#EF4444',
-  resolved: '#22C55E',
-}
-
-export default function MapView({ issues, onSelectIssue }) {
-  const [hoveredIssue, setHoveredIssue] = useState(null)
+export default function MapView({ issues = [], onSelectIssue }) {
   const [selectedMarker, setSelectedMarker] = useState(null)
-  const [showHeatmap, setShowHeatmap] = useState(false)
+
+  const mapsApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || import.meta.env.VITE_FIREBASE_API_KEY || '';
+  const [authError, setAuthError] = useState(null);
 
   const { isLoaded, loadError } = useJsApiLoader({
     id: 'google-map-script',
-    googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY,
+    googleMapsApiKey: mapsApiKey,
     libraries: libraries
   })
 
   const [map, setMap] = useState(null)
 
   useEffect(() => {
-    // Log API key status for debugging
-    const apiKeySet = !!import.meta.env.VITE_GOOGLE_MAPS_API_KEY
-    console.log('Maps API Key Set:', apiKeySet)
-    console.log('Current URL:', window.location.href)
-    if (loadError) {
-      console.error('Maps API Load Error:', loadError)
-    }
-  }, [loadError])
+    // Intercept Google Maps API authentication errors (gm_authFailure)
+    window.gm_authFailure = () => {
+      console.warn('[Google Maps] Authentication notification (gm_authFailure): verify Maps JavaScript API is enabled in Google Cloud Console.');
+      setAuthError('Google Maps API authentication requires Maps JavaScript API enabled in Google Cloud Console.');
+    };
 
-  const onLoad = React.useCallback(function callback(map) {
-    setMap(map)
+    if (loadError) {
+      console.error('Maps API Load Error:', loadError);
+    }
+
+    return () => {
+      window.gm_authFailure = null;
+    };
+  }, [loadError, mapsApiKey])
+
+  const onLoad = React.useCallback(function callback(mapInstance) {
+    setMap(mapInstance)
   }, [])
 
-  const onUnmount = React.useCallback(function callback(map) {
+  const onUnmount = React.useCallback(function callback() {
     setMap(null)
   }, [])
 
-  const heatmapData = useMemo(() => {
-    return issues
-      .filter(issue => issue.location?.lat && issue.location?.lng)
-      .map(issue => new window.google.maps.LatLng(issue.location.lat, issue.location.lng))
-  }, [issues, isLoaded])
+  // Dynamic center based on available issues with valid coordinates
+  const mapCenter = React.useMemo(() => {
+    const issueWithCoords = issues.find(i => i.location?.lat && i.location?.lng);
+    if (issueWithCoords) {
+      return { lat: Number(issueWithCoords.location.lat), lng: Number(issueWithCoords.location.lng) };
+    }
+    return center;
+  }, [issues]);
 
   // If API load error, show helpful message
   if (loadError) {
@@ -72,14 +74,14 @@ export default function MapView({ issues, onSelectIssue }) {
             <div className="text-center p-6 max-w-md">
               <h3 className="text-xl font-bold text-slate mb-4">Map Temporarily Unavailable</h3>
               <p className="text-slate-muted mb-4">
-                The Google Maps API is initializing. This can take 30-60 seconds when the API key referrer restrictions are being updated.
+                The Google Maps API is initializing or experiencing a connection restriction.
               </p>
               <div className="bg-cream-dark/50 rounded-lg p-3 mb-4 text-left">
                 <p className="text-slate text-sm mb-2"><strong>What you can still do:</strong></p>
                 <ul className="text-slate-muted text-sm space-y-1">
-                  <li>• View all issues in the list on the right</li>
-                  <li>• Click any issue to see details</li>
-                  <li>• Map will work after refresh if key is ready</li>
+                  <li>• View all issues in the Recent Issues list on the right</li>
+                  <li>• Click any report to view and update its status</li>
+                  <li>• Use the Refresh button after verifying API key</li>
                 </ul>
               </div>
               <button
@@ -103,7 +105,7 @@ export default function MapView({ issues, onSelectIssue }) {
           <Card hover={false} padding={false} className="overflow-hidden flex items-center justify-center h-[600px] bg-cream">
             <div className="text-center p-6">
               <h3 className="text-xl font-bold text-slate mb-2">Map Loading...</h3>
-              <p className="text-slate-muted">If this persists, check your Google Maps API Key.</p>
+              <p className="text-slate-muted">Connecting to Google Maps JavaScript API...</p>
             </div>
           </Card>
         </div>
@@ -135,7 +137,7 @@ export default function MapView({ issues, onSelectIssue }) {
 
           <GoogleMap
             mapContainerStyle={containerStyle}
-            center={issues[0]?.location?.lat ? { lat: issues[0].location.lat, lng: issues[0].location.lng } : center}
+            center={mapCenter}
             zoom={13}
             onLoad={onLoad}
             onUnmount={onUnmount}
@@ -145,34 +147,51 @@ export default function MapView({ issues, onSelectIssue }) {
               zoomControl: true,
             }}
           >
-            {showHeatmap && heatmapData.length > 0 && (
-              <HeatmapLayerF
-                data={heatmapData}
-                options={{
-                  radius: 30,
-                  opacity: 0.6,
-                }}
-              />
-            )}
-
-            {!showHeatmap && issues.map(issue => (
-              issue.location?.lat && (
+            {issues.map((issue) => (
+              issue.location?.lat && issue.location?.lng && (
                 <MarkerF
                   key={issue.id}
-                  position={{ lat: issue.location.lat, lng: issue.location.lng }}
+                  position={{ 
+                    lat: Number(issue.location.lat), 
+                    lng: Number(issue.location.lng) 
+                  }}
                   onClick={() => {
                     setSelectedMarker(issue);
-                    onSelectIssue(issue);
+                    if (onSelectIssue) onSelectIssue(issue);
                   }}
                 >
                   {selectedMarker?.id === issue.id && (
                     <InfoWindowF
-                      position={{ lat: issue.location.lat, lng: issue.location.lng }}
+                      position={{ 
+                        lat: Number(issue.location.lat), 
+                        lng: Number(issue.location.lng) 
+                      }}
                       onCloseClick={() => setSelectedMarker(null)}
                     >
-                      <div className="bg-cream text-slate p-2">
-                        <h4 className="font-display font-bold text-sm">{issue.type}</h4>
-                        <p className="text-xs font-body text-slate-muted">{issue.description?.substring(0, 50)}...</p>
+                      <div 
+                        className="bg-cream text-slate p-3 cursor-pointer max-w-xs"
+                        onClick={() => {
+                          if (onSelectIssue) onSelectIssue(issue);
+                        }}
+                      >
+                        <div className="mb-1.5">
+                          <IssueTypeTag 
+                            type={issue.category || issue.manualLabel || issue.issueType || issue.type || 'other'} 
+                            size="sm" 
+                          />
+                        </div>
+                        <p className="text-xs font-body text-slate font-medium line-clamp-2 leading-relaxed">
+                          {issue.description || 'No description provided.'}
+                        </p>
+                        <p className="text-[11px] font-body text-slate-muted mt-1.5 line-clamp-1">
+                          📍 {issue.location?.address || 'Coordinates marked on map'}
+                        </p>
+                        <div className="flex items-center justify-between mt-2.5 pt-2 border-t border-cream-muted">
+                          <StatusBadge status={issue.status || 'Submitted'} size="sm" />
+                          <span className="text-[10px] text-accent font-display font-semibold uppercase tracking-wider">
+                            Inspect Report →
+                          </span>
+                        </div>
                       </div>
                     </InfoWindowF>
                   )}
@@ -180,26 +199,6 @@ export default function MapView({ issues, onSelectIssue }) {
               )
             ))}
           </GoogleMap>
-
-          {/* Map Controls */}
-          <motion.div 
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3 }}
-            className="absolute top-16 left-4 flex gap-2"
-          >
-            <button
-              onClick={() => setShowHeatmap(!showHeatmap)}
-              className={`flex items-center gap-2 px-4 py-2.5 backdrop-blur-md transition-all duration-300 font-display text-sm font-medium border-2 ${
-                showHeatmap 
-                  ? 'bg-blueprint text-cream border-blueprint' 
-                  : 'bg-cream/90 text-slate border-cream-muted hover:border-blueprint/50'
-              }`}
-            >
-              <Layers className="w-4 h-4" />
-              Heatmap
-            </button>
-          </motion.div>
           
           {/* Issue count badge */}
           <div className="absolute bottom-4 left-4 bg-slate/90 backdrop-blur-sm px-4 py-2 border border-cream/20">
@@ -215,7 +214,7 @@ export default function MapView({ issues, onSelectIssue }) {
   )
 }
 
-function SidePanel({ issues, onSelectIssue }) {
+function SidePanel({ issues = [], onSelectIssue }) {
   return (
     <div className="lg:col-span-1">
       <motion.div
@@ -225,7 +224,7 @@ function SidePanel({ issues, onSelectIssue }) {
         className="bg-cream border-2 border-cream-muted h-[600px] overflow-hidden flex flex-col shadow-paper"
       >
         {/* Header */}
-        <div className="p-5 border-b-2 border-cream-muted">
+        <div className="p-5 border-b-2 border-cream-muted shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-accent/10 flex items-center justify-center">
               <Navigation className="w-5 h-5 text-accent" />
@@ -239,50 +238,55 @@ function SidePanel({ issues, onSelectIssue }) {
           </div>
         </div>
 
-        {/* Issues list */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        {/* Scrollable Issues list - no slicing so last report is never hidden */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-3 pb-8">
           <AnimatePresence>
-            {issues.slice(0, 10).map((issue, index) => (
+            {issues.map((issue, index) => (
               <motion.button
                 key={issue.id}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.05 }}
-                onClick={() => onSelectIssue(issue)}
+                transition={{ delay: Math.min(index * 0.03, 0.3) }}
+                onClick={() => {
+                  if (onSelectIssue) onSelectIssue(issue);
+                }}
                 whileHover={{ x: 4 }}
                 className="group w-full text-left p-3 bg-cream border-2 border-cream-muted hover:border-blueprint/50 transition-all duration-200"
               >
                 <div className="flex items-start gap-3">
-                  <div className="relative w-14 h-14 shrink-0">
+                  <div className="relative w-14 h-14 shrink-0 bg-cream-dark">
                     <img
                       src={issue.imageUrl || 'https://via.placeholder.com/150'}
-                      alt=""
+                      alt={issue.category || 'Issue'}
                       className="w-full h-full object-cover"
                     />
                     <div className="absolute inset-0 border border-cream-muted" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <IssueTypeTag type={issue.type} size="sm" />
+                    <IssueTypeTag 
+                      type={issue.category || issue.manualLabel || issue.issueType || issue.type || 'other'} 
+                      size="sm" 
+                    />
                     <p className="text-slate text-sm mt-1.5 line-clamp-1 font-body">
                       {issue.location?.address || 'Unknown Location'}
                     </p>
                     <div className="flex items-center justify-between mt-2">
-                      <StatusBadge status={issue.status} size="sm" />
+                      <StatusBadge status={issue.status || 'Submitted'} size="sm" />
                       <span className="text-xs text-slate-muted font-display">
-                        {new Date(issue.createdAt).toLocaleDateString()}
+                        {issue.createdAt ? new Date(issue.createdAt).toLocaleDateString() : ''}
                       </span>
                     </div>
                   </div>
-                  <ChevronRight className="w-4 h-4 text-slate-muted opacity-0 group-hover:opacity-100 transition-opacity mt-1" />
+                  <ChevronRight className="w-4 h-4 text-slate-muted opacity-0 group-hover:opacity-100 transition-opacity mt-1 shrink-0" />
                 </div>
               </motion.button>
             ))}
           </AnimatePresence>
           
-          {issues.length > 10 && (
-            <p className="text-center text-slate-muted font-display text-xs pt-2">
-              +{issues.length - 10} more issues
-            </p>
+          {issues.length === 0 && (
+            <div className="text-center py-12 text-slate-muted text-xs font-body">
+              No civic issues recorded yet.
+            </div>
           )}
         </div>
       </motion.div>

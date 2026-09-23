@@ -1,0 +1,36 @@
+{
+  "architecture": "mobilenet_v3_large",
+  "num_classes": 9,
+  "classes": [
+    "Damaged concrete structures",
+    "DamagedElectricalPoles",
+    "DamagedRoadSigns",
+    "DeadAnimalsPollution",
+    "FallenTrees",
+    "Garbage",
+    "Graffitti",
+    "IllegalParking",
+    "Potholes and RoadCracks"
+  ],
+  "input_size": [
+    3,
+    224,
+    224
+  ],
+  "mean": [
+    0.485,
+    0.456,
+    0.406
+  ],
+  "std": [
+    0.229,
+    0.224,
+    0.225
+  ],
+  "confidence_threshold": 0.55,
+  "best_epoch": 14,
+  "best_val_acc": 0.9979835582441445,
+  "trained_at": "2026-09-10T00:10:00Z",
+  "best_val_f1": 0.9952051007545535,
+  "note": "Continued training for 14 additional epochs with higher resolution 288x288 on RTX 4060"
+}

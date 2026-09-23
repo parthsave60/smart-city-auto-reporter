@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "classifier": "py -3.13 services/classifier/server.py"
   },
   "dependencies": {
     "@googlemaps/js-api-loader": "^2.0.2",

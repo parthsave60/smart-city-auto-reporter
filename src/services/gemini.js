@@ -1,168 +1,155 @@
 /**
- * Google Gemini API Service - Integration Point
+ * Google Gemini AI Service
  * 
- * This file is a placeholder for Google Gemini AI integration.
- * In production, this will handle:
- * - Generating human-readable issue descriptions from image analysis
- * - Creating detailed reports based on detected objects
- * - Suggesting issue severity and priority
- * - Multi-modal analysis (image + context)
- * 
- * Implementation Notes:
- * - Gemini API calls should be made through Cloud Functions for security
- * - Use Gemini Pro Vision for image understanding
- * - Never expose API keys in frontend code
- * 
- * Required APIs:
- * - Google AI Gemini API (or Vertex AI)
- * - Cloud Functions for Firebase
+ * Generates natural-language municipal complaint descriptions using the image URL
+ * and the custom civic-issue classification model's prediction.
  */
 
-const FUNCTION_BASE = 'https://generatedescriptionhttp-u32gmpf24a-uc.a.run.app'
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+const CLOUD_FUNCTION_BASE = 'https://generatedescriptionhttp-u32gmpf24a-uc.a.run.app';
+
+// Professional municipal complaint templates for the 9 civic issue classes
+const CIVIC_DESCRIPTIONS = {
+  'Damaged concrete structures': 'Damaged concrete structure identified on public infrastructure. Surface crumbling and spalling visible; structural inspection and masonry repair recommended.',
+  'DamagedElectricalPoles': 'Damaged electrical utility pole observed. Compromised structural stability poses a potential public safety hazard; urgent municipal inspection required.',
+  'DamagedRoadSigns': 'Damaged or defaced traffic sign observed along the roadway. Impaired legibility affects traffic guidance; municipal sign replacement recommended.',
+  'DeadAnimalsPollution': 'Biological hazard or animal waste pollution detected in public space. Immediate municipal sanitation dispatch recommended to maintain hygiene.',
+  'FallenTrees': 'Fallen tree or hazardous broken limbs obstructing public pathway or roadway. Urban forestry clearance needed to restore safe pedestrian and vehicular flow.',
+  'Garbage': 'Accumulation of uncollected refuse and municipal solid waste in a public area. Sanitation collection requested to prevent neighborhood litter and hygiene hazards.',
+  'Graffitti': 'Unauthorized graffiti vandalism visible on public infrastructure surface. Pressure washing or repainting recommended to restore public space.',
+  'IllegalParking': 'Vehicle parked in violation of municipal regulations, impeding traffic flow or sidewalk accessibility. Parking enforcement dispatch requested.',
+  'Potholes and RoadCracks': 'Road surface deterioration and pothole/cracks observed on the pavement. Asphalt patching and resurfacing recommended to ensure motorist safety.',
+  'Waterlogging': 'Severe street waterlogging and stormwater accumulation overflowing the roadway. Standing water impedes traffic and pedestrian mobility; immediate stormwater drainage clearance requested.',
+  'other': 'Civic infrastructure issue observed requiring municipal inspection and maintenance.'
+};
 
 /**
- * Generate issue description using Gemini
- * @param {string} imageUrl - URL of the issue image
- * @param {Object} visionResults - Results from Vision API analysis
- * @returns {Promise<Object>} - Generated description and metadata
+ * Generate human-readable complaint description using Gemini AI
+ * @param {string} imageUrl - Cloudinary URL of the issue image
+ * @param {Object} classificationResult - Result from custom classifier { predictedClass, confidence, issueTypeId }
+ * @returns {Promise<{ description: string, suggestedPriority: string, confidence: number }>}
  */
-export async function generateDescription(imageUrl, visionResults) {
-  try {
-    const response = await fetch(FUNCTION_BASE, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ imageUrl, visionResults }),
-    })
+export async function generateDescription(imageUrl, classificationResult = {}) {
+  const predictedClass = classificationResult.predictedClass || 'Civic Issue';
+  const confidence = classificationResult.confidence || 0.85;
+  const issueType = classificationResult.issueTypeId || 'other';
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`)
-    }
+  // 1. If direct Gemini API key is provided, use Google Generative AI REST API
+  if (GEMINI_API_KEY) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
+    try {
+      console.log('[Gemini] Generating complaint description using Gemini API...');
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+      
+      const promptText = `You are a professional smart city assistant. A citizen reported an infrastructure problem.
+The custom AI classifier identified the issue as: "${predictedClass}" with ${Math.round(confidence * 100)}% confidence.
+Generate a concise, professional 2-sentence municipal maintenance description suitable for city public works officials.
+State clearly what problem is reported and why maintenance attention is needed. Do not invent unobservable facts.`;
 
-    return await response.json()
-  } catch (error) {
-    console.warn('[Gemini API] Callable failed, using fallback:', error?.message)
-    const issueType = visionResults?.detectedIssueType || 'other'
-    return {
-      description: `AI summary for ${issueType}: based on visual cues ${
-        (visionResults?.labels || []).slice(0,3).map(l => l.description).join(', ')
-      }.`,
-      suggestedPriority: issueType === 'pothole' || issueType === 'flooding' ? 'high' : 'medium',
-      confidence: 0.87,
-      keywords: visionResults?.labels?.slice(0, 3).map(l => l.description) || [],
-    }
-  }
-}
+      const body = {
+        contents: [
+          {
+            parts: [
+              { text: promptText }
+            ]
+          }
+        ],
+        generationConfig: {
+          temperature: 0.4,
+          maxOutputTokens: 200
+        }
+      };
 
-/**
- * Suggest issue severity based on analysis
- * @param {Object} analysisResults - Combined Vision + Gemini results
- * @returns {string} - Suggested severity level
- */
-export function suggestSeverity(analysisResults) {
-  const highPriorityTypes = ['pothole', 'flooding', 'road-damage', 'tree']
-  
-  if (highPriorityTypes.includes(analysisResults.detectedIssueType)) {
-    return 'high'
-  }
-  
-  if (analysisResults.confidence > 0.9) {
-    return 'medium'
-  }
-  
-  return 'low'
-}
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
 
-/**
- * Analyze image with Google Vision API (via Cloud Function)
- * @param {string} imageUrl - URL of the image to analyze
- * @returns {Promise<Object>} - Vision API results
- */
-export async function analyzeImageWithVision(imageUrl) {
-  try {
-    // In production, call Cloud Function that wraps Vision API
-    const response = await fetch(`${FUNCTION_BASE}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ imageUrl, mode: 'vision' }),
-    })
-    
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
-    return await response.json()
-  } catch (error) {
-    console.warn('[Vision API] Using fallback:', error?.message)
-    return {
-      labels: [{ description: 'infrastructure', score: 0.85 }],
-      confidence: 0.75,
+      if (res.ok) {
+        const data = await res.json();
+        const candidateText = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+        if (candidateText && candidateText.length > 15) {
+          console.log('[Gemini] Successfully generated description:', candidateText);
+          return {
+            description: candidateText,
+            suggestedPriority: suggestPriority(predictedClass),
+            confidence: confidence,
+          };
+        }
+      }
+    } catch (err) {
+      clearTimeout(timeoutId);
+      console.warn('[Gemini] Direct API call fallback:', err.message);
     }
   }
-}
 
-/**
- * Generate report description with Gemini
- * @param {string} imageUrl - URL of the image
- * @param {Array} labels - Labels from Vision API
- * @returns {Promise<Object>} - Generated report
- */
-export async function generateReportWithGemini(imageUrl, labels = []) {
+  // 2. Try Firebase Cloud Function endpoint if available (with 3s timeout)
+  const fnController = new AbortController();
+  const fnTimeoutId = setTimeout(() => fnController.abort(), 3000);
   try {
-    const response = await fetch(FUNCTION_BASE, {
+    const response = await fetch(CLOUD_FUNCTION_BASE, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ imageUrl, labels, mode: 'generate' }),
-    })
-    
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
-    const data = await response.json()
-    
-    return {
-      summary: data.description || 'Issue detected in image',
-      category: data.category || detectCategoryFromLabels(labels),
+      body: JSON.stringify({
+        imageUrl,
+        classificationResult,
+        predictedClass,
+      }),
+      signal: fnController.signal,
+    });
+    clearTimeout(fnTimeoutId);
+
+    if (response.ok) {
+      const data = await response.json();
+      if (data.description) {
+        return {
+          description: data.description,
+          suggestedPriority: data.suggestedPriority || suggestPriority(predictedClass),
+          confidence: data.confidence || confidence,
+        };
+      }
     }
-  } catch (error) {
-    console.warn('[Gemini] Using fallback:', error?.message)
-    return {
-      summary: 'City infrastructure issue detected',
-      category: detectCategoryFromLabels(labels),
-    }
+  } catch (err) {
+    clearTimeout(fnTimeoutId);
+    console.log('[Gemini] Cloud Function fallback used:', err.message);
   }
+
+  // 3. High quality contextual default for the detected class
+  const templateDescription = CIVIC_DESCRIPTIONS[predictedClass] || CIVIC_DESCRIPTIONS[issueType] || CIVIC_DESCRIPTIONS.other;
+
+  return {
+    description: templateDescription,
+    suggestedPriority: suggestPriority(predictedClass),
+    confidence: confidence,
+  };
 }
 
 /**
- * Detect issue category from Vision labels
+ * Determine priority based on civic issue severity
  */
-function detectCategoryFromLabels(labels) {
-  const labelText = labels.map(l => l.description?.toLowerCase() || '').join(' ')
-  
-  if (labelText.includes('pothole') || labelText.includes('road') || labelText.includes('asphalt')) {
-    return 'pothole'
+export function suggestPriority(issueClass = '') {
+  const highPriority = [
+    'DamagedElectricalPoles',
+    'DeadAnimalsPollution',
+    'FallenTrees',
+    'Potholes and RoadCracks',
+    'Waterlogging',
+    'pothole',
+    'electrical-pole',
+    'waterlogging'
+  ];
+
+  if (highPriority.some(p => issueClass.toLowerCase().includes(p.toLowerCase()))) {
+    return 'high';
   }
-  if (labelText.includes('light') || labelText.includes('lamp') || labelText.includes('pole')) {
-    return 'broken-light'
-  }
-  if (labelText.includes('graffiti') || labelText.includes('paint') || labelText.includes('vandal')) {
-    return 'graffiti'
-  }
-  if (labelText.includes('trash') || labelText.includes('garbage') || labelText.includes('litter')) {
-    return 'garbage'
-  }
-  if (labelText.includes('flood') || labelText.includes('water') || labelText.includes('puddle')) {
-    return 'flooding'
-  }
-  if (labelText.includes('tree') || labelText.includes('branch')) {
-    return 'tree'
-  }
-  if (labelText.includes('sign') || labelText.includes('traffic')) {
-    return 'traffic-sign'
-  }
-  
-  return 'other'
+  return 'medium';
 }
 
 export default {
   generateDescription,
-  suggestSeverity,
-  analyzeImageWithVision,
-  generateReportWithGemini,
-}
+  suggestPriority,
+};

@@ -1,0 +1,25 @@
+{
+  "epoch": 10,
+  "train_loss": 0.4011,
+  "val_loss": 0.4183,
+  "train_acc": 99.74,
+  "val_acc": 99.33,
+  "val_f1": 0.9873,
+  "is_best": false,
+  "best_epoch": 7,
+  "best_val_f1": 0.9903,
+  "patience_counter": 3,
+  "patience_max": 5,
+  "should_stop": false,
+  "per_class_recall": {
+    "Damaged concrete structures": 98.8,
+    "DamagedElectricalPoles": 99.83,
+    "DamagedRoadSigns": 99.42,
+    "DeadAnimalsPollution": 100.0,
+    "FallenTrees": 99.51,
+    "Garbage": 99.47,
+    "Graffitti": 96.53,
+    "IllegalParking": 100.0,
+    "Potholes and RoadCracks": 100.0
+  }
+}

@@ -5,15 +5,32 @@ node_modules/
 
 # Build outputs
 dist/
+dist-ssr/
 build/
 .vite/
 
-# Environment variables
+# Python cache & virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.pytest_cache/
+
+# Environment variables & secrets
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*serviceAccount*.json
+credentials.json
 
 # Firebase
 .firebase/
@@ -27,6 +44,10 @@ firebase-debug.*.log
 *.swp
 *.swo
 *~
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
 
 # OS generated files
 .DS_Store
@@ -50,7 +71,7 @@ lerna-debug.log*
 coverage/
 .nyc_output/
 
-# Misc
+# Misc & Caches
 *.local
 .cache/
 .temp/

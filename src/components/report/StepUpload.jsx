@@ -2,8 +2,7 @@ import { useCallback, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Upload, Camera, Image, X, ArrowRight, AlertCircle } from 'lucide-react'
 import { Button, Card } from '../ui'
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
-import { storage } from '../../firebase'
+import { uploadImageToCloudinary } from '../../services/cloudinary'
 import { getCurrentLocation } from '../../services/maps'
 import { MapPin } from 'lucide-react'
 
@@ -14,76 +13,92 @@ export default function StepUpload({ reportData, updateReportData, onNext }) {
   const [uploadError, setUploadError] = useState(null)
 
   const handleFileSelect = useCallback(async (file) => {
-    if (!file || !file.type.startsWith('image/')) {
-      setUploadError('Please select a valid image file')
+    if (!file || !file.type || !file.type.startsWith('image/')) {
+      setUploadError('Please select a valid image file.')
+      setIsUploading(false)
       return
     }
 
     setUploadError(null)
-    setUploadError(null)
     setIsUploading(true)
     setIsLocating(true)
 
-    // Start location capture in parallel
+    // Instant local preview for zero-latency UI rendering
+    const instantPreviewUrl = URL.createObjectURL(file)
+    updateReportData({
+      image: file,
+      imagePreview: instantPreviewUrl,
+      imageUrl: null,
+      cloudinaryPublicId: null,
+      location: null,
+      analysisResult: null,
+      validationError: null,
+      civicIssueDetected: null,
+      predictedClass: null,
+      description: '',
+    })
+
+    // Start location capture in parallel with maximumAge: 0
     const locationPromise = getCurrentLocation().catch(err => {
-      console.warn("Auto-location failed:", err);
-      return null;
-    });
+      console.warn("[StepUpload] Location capture error:", err)
+      return null
+    })
 
     try {
-      // Read preview
+      // Background FileReader for durable dataURL
       const reader = new FileReader()
-      reader.onload = async (e) => {
+      reader.onload = (e) => {
         updateReportData({
-          image: file,
           imagePreview: e.target.result,
         })
       }
       reader.readAsDataURL(file)
 
-      // Upload to Firebase Storage
-      const imageRef = ref(storage, `issues/${Date.now()}_${file.name}`)
-      const uploadResult = await uploadBytes(imageRef, file)
-      const downloadURL = await getDownloadURL(uploadResult.ref)
-
-      console.log('Image uploaded successfully:', downloadURL)
+      // Upload to Cloudinary
+      const cloudinaryResult = await uploadImageToCloudinary(file)
+      console.log('Image uploaded to Cloudinary successfully:', cloudinaryResult.imageUrl)
 
       updateReportData({
         image: file,
-        imageUrl: downloadURL,
-        storagePath: uploadResult.ref.fullPath,
-        bucket: uploadResult.ref.bucket,
+        imageUrl: cloudinaryResult.imageUrl,
+        cloudinaryPublicId: cloudinaryResult.publicId,
+        imageFormat: cloudinaryResult.format,
       })
 
       setIsUploading(false)
 
       // Handle location result
-      const location = await locationPromise;
-      setIsLocating(false);
+      const location = await locationPromise
+      setIsLocating(false)
 
       if (location) {
-        console.log("Auto-captured location:", location);
+        console.log("[StepUpload] Fresh location captured:", location)
         updateReportData({
           location: {
             lat: location.lat,
             lng: location.lng,
+            accuracy: location.accuracy,
+            timestamp: location.timestamp,
             address: location.address,
           }
-        });
+        })
       }
 
     } catch (error) {
       console.error('Upload error:', error)
       setUploadError(`Upload failed: ${error.message}`)
       setIsUploading(false)
+      setIsLocating(false)
     }
   }, [updateReportData])
 
   const handleDrop = useCallback((e) => {
     e.preventDefault()
     setIsDragging(false)
-    const file = e.dataTransfer.files[0]
-    handleFileSelect(file)
+    const file = e.dataTransfer.files && e.dataTransfer.files[0]
+    if (file) {
+      handleFileSelect(file)
+    }
   }, [handleFileSelect])
 
   const handleDragOver = (e) => {
@@ -96,14 +111,25 @@ export default function StepUpload({ reportData, updateReportData, onNext }) {
   }
 
   const handleInputChange = (e) => {
-    const file = e.target.files[0]
-    handleFileSelect(file)
+    const file = e.target.files && e.target.files[0]
+    if (file) {
+      handleFileSelect(file)
+    }
+    // Critical fix: Reset input value so reselecting the same file triggers onChange every time
+    e.target.value = ''
   }
 
   const removeImage = () => {
     updateReportData({
       image: null,
       imagePreview: null,
+      imageUrl: null,
+      cloudinaryPublicId: null,
+      analysisResult: null,
+      validationError: null,
+      civicIssueDetected: null,
+      predictedClass: null,
+      description: '',
     })
   }
 
@@ -200,20 +226,33 @@ export default function StepUpload({ reportData, updateReportData, onNext }) {
 
           )}
 
-          {/* Location Status */}
-          {(isLocating || reportData.location) && (
-            <div className={`flex items-center gap-2 p-3 border ${reportData.location ? 'bg-success/10 border-success/30' : 'bg-blueprint/10 border-blueprint/30'}`}>
-              <MapPin className={`w-5 h-5 ${reportData.location ? 'text-success' : 'text-blueprint'}`} />
-              <div className="flex-1">
+          {/* Location Status - Shows Coordinates only (No readable address on first page) */}
+          {(isLocating || (reportData.location && reportData.location.lat && reportData.location.lng)) && (
+            <div className={`p-3.5 border ${reportData.location ? 'bg-success/10 border-success/30' : 'bg-blueprint/10 border-blueprint/30'}`}>
+              <div className="flex items-center gap-2">
+                <MapPin className={`w-5 h-5 shrink-0 ${reportData.location ? 'text-success' : 'text-blueprint'}`} />
                 <p className={`text-sm font-display font-medium ${reportData.location ? 'text-success' : 'text-blueprint'}`}>
-                  {isLocating ? "Detecting location..." : "Location captured"}
+                  {isLocating ? "Capturing current device coordinates..." : "Location Coordinates"}
                 </p>
-                {reportData.location?.address && (
-                  <p className="text-xs text-slate-muted font-body truncate max-w-[250px]">
-                    {reportData.location.address}
-                  </p>
-                )}
               </div>
+              {reportData.location && reportData.location.lat && reportData.location.lng && (
+                <div className="mt-2 text-xs font-mono text-slate space-y-0.5 pl-7">
+                  <div>
+                    <span className="text-slate-muted">Latitude: </span>
+                    <span className="font-semibold">{Number(reportData.location.lat).toFixed(6)}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-muted">Longitude: </span>
+                    <span className="font-semibold">{Number(reportData.location.lng).toFixed(6)}</span>
+                  </div>
+                  {reportData.location.accuracy != null && (
+                    <div>
+                      <span className="text-slate-muted">Accuracy: </span>
+                      <span>{Math.round(reportData.location.accuracy)} m</span>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

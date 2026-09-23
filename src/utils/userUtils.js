@@ -1,25 +1,88 @@
-// List of email addresses that have Admin privileges
-// Add your Google account email here to access the dashboard
-const ADMIN_EMAILS = [
-    "maithilpatil9@gmail.com",
+// List of email addresses that have Authority / Admin privileges
+export const AUTHORITY_EMAILS = [
+    "124parth4014@sjcem.edu.in",
+    "124parh4014@sjcme.edu.in",
     "admin@smartcity.com",
+    "maithilpatil9@gmail.com",
     "harshstawde@gmail.com",
     "satyambhagat200623@gmail.com"
 ];
 
+export const ADMIN_EMAILS = AUTHORITY_EMAILS;
+
 /**
- * Checks if the given user object has admin privileges.
- * @param {object} user - The Firebase user object.
- * @returns {boolean} - True if admin, false otherwise.
+ * Valid report statuses in municipal workflow
  */
-export const isAdmin = (user) => {
-    if (!user || !user.email) return false;
-    return ADMIN_EMAILS.includes(user.email);
+export const REPORT_STATUSES = [
+    'Submitted',
+    'Under Review',
+    'Assigned',
+    'In Progress',
+    'Resolved',
+    'Rejected'
+];
+
+/**
+ * The 9 official custom model classes (strictly preserved in the custom PyTorch model)
+ */
+export const MODEL_CLASSES = [
+    'Damaged concrete structures',
+    'DamagedElectricalPoles',
+    'DamagedRoadSigns',
+    'DeadAnimalsPollution',
+    'FallenTrees',
+    'Garbage',
+    'Graffitti',
+    'IllegalParking',
+    'Potholes and RoadCracks'
+];
+
+/**
+ * All application-level civic categories (9 model classes + Waterlogging via multimodal API)
+ */
+export const CIVIC_CATEGORIES = [
+    'Damaged concrete structures',
+    'DamagedElectricalPoles',
+    'DamagedRoadSigns',
+    'DeadAnimalsPollution',
+    'FallenTrees',
+    'Garbage',
+    'Graffitti',
+    'IllegalParking',
+    'Potholes and RoadCracks',
+    'Waterlogging'
+];
+
+/**
+ * Checks if the given user or profile has Authority privileges.
+ * @param {object} user - The Firebase auth user object.
+ * @param {object} [profile] - Optional Firestore user profile.
+ * @returns {boolean} - True if authority, false otherwise.
+ */
+export const isAuthority = (user, profile = null) => {
+    if (!user) return false;
+    if (user.email && AUTHORITY_EMAILS.includes(user.email.toLowerCase())) {
+        return true;
+    }
+    if (profile && (profile.role === 'authority' || profile.role === 'admin')) {
+        return true;
+    }
+    return false;
 };
 
+/**
+ * Backwards compatibility alias for isAuthority
+ */
+export const isAdmin = (user, profile = null) => {
+    return isAuthority(user, profile);
+};
 
-export const getUserRole = (user) => {
-    return isAdmin(user) ? 'admin' : 'citizen';
+export const isCitizen = (user, profile = null) => {
+    return !!user && !isAuthority(user, profile);
+};
+
+export const getUserRole = (user, profile = null) => {
+    return isAuthority(user, profile) ? 'authority' : 'citizen';
 };
 
 // Gamification Logic

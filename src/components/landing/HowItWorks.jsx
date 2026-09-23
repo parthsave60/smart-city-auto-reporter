@@ -15,7 +15,7 @@ const steps = [
     icon: Brain,
     title: 'Analyze',
     subtitle: 'AI Verification',
-    description: 'Google Vision detects objects. Gemini AI writes an official-quality description automatically.',
+    description: 'Our custom AI model classifies the civic issue. Gemini AI generates an official-quality description automatically.',
   },
   {
     number: '03',

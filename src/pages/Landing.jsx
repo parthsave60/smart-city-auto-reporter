@@ -7,7 +7,9 @@ import {
   Zap,
   Shield,
   Sparkles,
-  ChevronDown
+  ChevronDown,
+  FileText,
+  LayoutDashboard
 } from 'lucide-react'
 import { Button } from '../components/ui'
 import AnimatedBackground from '../components/landing/AnimatedBackground'
@@ -16,6 +18,7 @@ import StatsSection from '../components/landing/StatsSection'
 import HowItWorks from '../components/landing/HowItWorks'
 import Leaderboard from '../components/gamification/Leaderboard'
 import { useRef } from 'react'
+import { useAuth } from '../context/AuthContext'
 
 // Premium stagger animation variants
 const containerVariants = {
@@ -48,6 +51,7 @@ const fadeInUp = {
 }
 
 export default function Landing() {
+  const { user, isAuthority } = useAuth()
   const heroRef = useRef(null)
   const { scrollYProgress } = useScroll({
     target: heroRef,
@@ -115,8 +119,7 @@ export default function Landing() {
                 variants={itemVariants}
                 className="text-lg md:text-xl text-slate-muted font-body leading-relaxed max-w-xl mb-10"
               >
-                Snap a photo of any city issue. Google Vision detects what it is. 
-                Gemini writes the official report. City officials take action instantly.
+                Snap a photo of any city issue. Our AI model identifies the civic issue automatically. Gemini generates a clear complaint description. City officials take action.
               </motion.p>
 
               {/* CTA Buttons */}
@@ -124,26 +127,60 @@ export default function Landing() {
                 variants={itemVariants}
                 className="flex flex-col sm:flex-row items-start gap-4 mb-12"
               >
-                <Link to="/report">
-                  <motion.div
-                    whileHover={{ scale: 1.03, y: -2 }}
-                    whileTap={{ scale: 0.98 }}
-                  >
-                    <Button size="xl" icon={Camera}>
-                      Report an Issue
-                    </Button>
-                  </motion.div>
-                </Link>
-                <Link to="/login">
-                  <motion.div
-                    whileHover={{ scale: 1.03, y: -2 }}
-                    whileTap={{ scale: 0.98 }}
-                  >
-                    <Button variant="secondary" size="xl" icon={Shield}>
-                      Sign In
-                    </Button>
-                  </motion.div>
-                </Link>
+                {user ? (
+                  isAuthority ? (
+                    <>
+                      <Link to="/dashboard">
+                        <motion.div whileHover={{ scale: 1.03, y: -2 }} whileTap={{ scale: 0.98 }}>
+                          <Button size="xl" icon={LayoutDashboard}>
+                            Authority Dashboard
+                          </Button>
+                        </motion.div>
+                      </Link>
+                      <Link to="/report">
+                        <motion.div whileHover={{ scale: 1.03, y: -2 }} whileTap={{ scale: 0.98 }}>
+                          <Button variant="secondary" size="xl" icon={Camera}>
+                            Create Report
+                          </Button>
+                        </motion.div>
+                      </Link>
+                    </>
+                  ) : (
+                    <>
+                      <Link to="/report">
+                        <motion.div whileHover={{ scale: 1.03, y: -2 }} whileTap={{ scale: 0.98 }}>
+                          <Button size="xl" icon={Camera}>
+                            Report an Issue
+                          </Button>
+                        </motion.div>
+                      </Link>
+                      <Link to="/my-reports">
+                        <motion.div whileHover={{ scale: 1.03, y: -2 }} whileTap={{ scale: 0.98 }}>
+                          <Button variant="secondary" size="xl" icon={FileText}>
+                            My Reports
+                          </Button>
+                        </motion.div>
+                      </Link>
+                    </>
+                  )
+                ) : (
+                  <>
+                    <Link to="/report">
+                      <motion.div whileHover={{ scale: 1.03, y: -2 }} whileTap={{ scale: 0.98 }}>
+                        <Button size="xl" icon={Camera}>
+                          Report an Issue
+                        </Button>
+                      </motion.div>
+                    </Link>
+                    <Link to="/login">
+                      <motion.div whileHover={{ scale: 1.03, y: -2 }} whileTap={{ scale: 0.98 }}>
+                        <Button variant="secondary" size="xl" icon={Shield}>
+                          Sign In
+                        </Button>
+                      </motion.div>
+                    </Link>
+                  </>
+                )}
               </motion.div>
 
               {/* Quick Stats */}
@@ -392,19 +429,51 @@ export default function Landing() {
                 Every report matters. When you submit, AI instantly verifies it and routes it to the right department.
               </p>
               <p className="text-slate-muted/60 font-body text-sm mb-10 max-w-2xl mx-auto">
-                Powered by <strong className="text-slate">Google Cloud Vision API</strong>, <strong className="text-slate">Gemini AI</strong>, and <strong className="text-slate">Firebase</strong>
+                Powered by <strong className="text-slate">Custom 9-Class AI Classifier</strong>, <strong className="text-slate">Gemini AI</strong>, <strong className="text-slate">Cloudinary</strong>, and <strong className="text-slate">Firebase</strong>
               </p>
               <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-                <Link to="/report">
-                  <Button size="xl" icon={ArrowRight} iconPosition="right">
-                    Start Reporting
-                  </Button>
-                </Link>
-                <Link to="/login">
-                  <Button variant="secondary" size="xl">
-                    Sign In
-                  </Button>
-                </Link>
+                {user ? (
+                  isAuthority ? (
+                    <>
+                      <Link to="/dashboard">
+                        <Button size="xl" icon={LayoutDashboard}>
+                          Authority Dashboard
+                        </Button>
+                      </Link>
+                      <Link to="/report">
+                        <Button variant="secondary" size="xl" icon={Camera}>
+                          Create Report
+                        </Button>
+                      </Link>
+                    </>
+                  ) : (
+                    <>
+                      <Link to="/report">
+                        <Button size="xl" icon={Camera}>
+                          Report an Issue
+                        </Button>
+                      </Link>
+                      <Link to="/my-reports">
+                        <Button variant="secondary" size="xl" icon={FileText}>
+                          My Reports
+                        </Button>
+                      </Link>
+                    </>
+                  )
+                ) : (
+                  <>
+                    <Link to="/report">
+                      <Button size="xl" icon={ArrowRight} iconPosition="right">
+                        Start Reporting
+                      </Button>
+                    </Link>
+                    <Link to="/login">
+                      <Button variant="secondary" size="xl">
+                        Sign In
+                      </Button>
+                    </Link>
+                  </>
+                )}
               </div>
             </div>
           </motion.div>

@@ -3,7 +3,6 @@ const { onCall, onRequest } = require("firebase-functions/v2/https");
 const { defineSecret } = require("firebase-functions/params");
 const { initializeApp } = require("firebase-admin/app");
 const { getFirestore } = require("firebase-admin/firestore");
-const vision = require("@google-cloud/vision");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const axios = require("axios");
 
@@ -14,7 +13,7 @@ const qwenApiKey = defineSecret("QWEN_API_KEY");
 const app = initializeApp();
 const db = getFirestore(app);
 
-const visionClient = new vision.ImageAnnotatorClient();
+// Vision API client removed - replaced by custom PyTorch classifier
 
 // Internal endpoint (appears as Google API in logs)
 const ALT_VISION_ENDPOINT = "https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation";
@@ -195,29 +194,12 @@ async function analyzeImageCore(imageUrl, geminiApiKeyValue, qwenApiKeyValue) {
         }
     }
 
-    // Fallback to standard Vision + Gemini
-    let labels = [];
-    let success = false;
-
-    // Try Cloud Vision for label detection
+    // Cloud Vision removed - Fallback to Gemini analysis
     try {
-        console.log("[analyzeImage] Using standard Cloud Vision API...");
-        const [result] = await visionClient.labelDetection(imageUrl);
-        const anns = result?.labelAnnotations || [];
-        labels = anns.slice(0, 5).map((ann) => ({ description: ann.description || "", score: ann.score || 0.7 }));
-        success = labels.length > 0;
-        console.log("[analyzeImage] Vision labels detected:", labels.map(l => l.description).join(", "));
-    } catch (err) {
-        console.error("[analyzeImage] Vision failed:", err.message);
-    }
-
-    // If Vision fails, enhance with Gemini
-    if (!success || labels.length < 3) {
-        try {
-            if (!geminiApiKeyValue) throw new Error("No Gemini API key available");
-            console.log("[analyzeImage] Enhancing with Gemini API...");
-            const genAI = new GoogleGenerativeAI(geminiApiKeyValue);
-            const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        if (!geminiApiKeyValue) throw new Error("No Gemini API key available");
+        console.log("[analyzeImage] Analyzing with Gemini API...");
+        const genAI = new GoogleGenerativeAI(geminiApiKeyValue);
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
             const imageBase64 = await fetchImageBase64(imageUrl);
             
             const result = await model.generateContent([

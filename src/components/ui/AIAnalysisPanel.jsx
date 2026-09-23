@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Brain, Eye, Sparkles, Lightbulb, Edit3, Check, AlertCircle } from 'lucide-react'
-import { IssueTypeTag } from './index'
+import IssueTypeTag from './IssueTypeTag'
 
 export default function AIAnalysisPanel({
   isAnalyzing = false,
@@ -10,13 +10,17 @@ export default function AIAnalysisPanel({
   onDescriptionChange,
   className = '',
 }) {
+  const rawDesc = description || analysisResult?.generatedDescription || analysisResult?.description || ''
+  const displayDescription = typeof rawDesc === 'string'
+    ? rawDesc
+    : (rawDesc?.text || rawDesc?.summary || rawDesc?.description || (rawDesc ? String(rawDesc) : ''))
   const [isEditingDescription, setIsEditingDescription] = useState(false)
-  const [editedDescription, setEditedDescription] = useState(description)
+  const [editedDescription, setEditedDescription] = useState(displayDescription)
   const [pulseKey, setPulseKey] = useState(0)
 
   useEffect(() => {
-    setEditedDescription(description)
-  }, [description])
+    setEditedDescription(displayDescription)
+  }, [displayDescription])
 
   // Pulse animation trigger
   useEffect(() => {
@@ -31,8 +35,8 @@ export default function AIAnalysisPanel({
     setIsEditingDescription(false)
   }
 
-  // TODO: Vision API result will populate analysisResult
-  // TODO: Gemini summary will populate reasoning and description
+  // Custom PyTorch 9-class classifier populates analysisResult
+  // Gemini generates reasoning and complaint description
 
   return (
     <motion.div
@@ -135,44 +139,65 @@ export default function AIAnalysisPanel({
                   <Eye className="w-4 h-4 text-blueprint" />
                   <span className="font-display text-sm font-medium text-slate-muted uppercase tracking-wider">Detected Issue</span>
                 </div>
-                <div className="flex items-center justify-between">
-                  <IssueTypeTag type={analysisResult?.issueType || 'pothole'} size="lg" />
-                  <div className="text-right">
-                    <div className="font-display text-2xl font-bold text-blueprint">
-                      {((analysisResult?.confidence || 0.89) * 100).toFixed(0)}%
-                    </div>
-                    <div className="font-display text-xs text-slate-muted uppercase tracking-wider">Confidence</div>
-                  </div>
-                </div>
-                
-                {/* Confidence bar */}
-                <div className="mt-3 h-2 bg-cream-muted overflow-hidden">
-                  <motion.div
-                    initial={{ width: 0 }}
-                    animate={{ width: `${(analysisResult?.confidence || 0.89) * 100}%` }}
-                    transition={{ duration: 1, delay: 0.3 }}
-                    className="h-full bg-gradient-to-r from-blueprint to-accent"
-                  />
-                </div>
-              </div>
+                {(() => {
+                  const rawConf = analysisResult?.confidence !== undefined && analysisResult?.confidence !== null 
+                    ? analysisResult.confidence 
+                    : 0.89;
+                  const numConf = typeof rawConf === 'number' && !isNaN(rawConf) ? rawConf : (Number(rawConf) || 0.89);
+                  const safeConf = Math.min(Math.max(numConf, 0), 1);
+                  const rawKeywords = analysisResult?.keywords;
+                  const safeKeywords = Array.isArray(rawKeywords)
+                    ? rawKeywords
+                    : typeof rawKeywords === 'string'
+                    ? rawKeywords.split(',').map(s => s.trim()).filter(Boolean)
+                    : ['road damage', 'asphalt', 'pothole', 'infrastructure'];
+                  const rawReasoning = analysisResult?.reasoning;
+                  const safeReasoning = typeof rawReasoning === 'string' && rawReasoning
+                    ? rawReasoning
+                    : (rawReasoning?.text || rawReasoning?.reason || 'Based on visual analysis, the image shows road surface damage consistent with a pothole. Key indicators include: irregular edges, depth variation, and surrounding asphalt deterioration. The location and size suggest medium priority for repair.');
 
-              {/* AI Reasoning Section */}
-              <div className="p-4 bg-cream-dark/30 border border-cream-muted">
-                <div className="flex items-center gap-2 mb-3">
-                  <Lightbulb className="w-4 h-4 text-accent" />
-                  <span className="font-display text-sm font-medium text-slate-muted uppercase tracking-wider">AI Reasoning</span>
-                </div>
-                <p className="text-sm text-slate font-body leading-relaxed">
-                  {analysisResult?.reasoning || 
-                    'Based on visual analysis, the image shows road surface damage consistent with a pothole. Key indicators include: irregular edges, depth variation, and surrounding asphalt deterioration. The location and size suggest medium priority for repair.'}
-                </p>
-                <div className="flex flex-wrap gap-2 mt-3">
-                  {(analysisResult?.keywords || ['road damage', 'asphalt', 'pothole', 'infrastructure']).map((keyword, i) => (
-                    <span key={i} className="px-2 py-1 bg-accent/10 font-display text-xs text-accent font-medium">
-                      {keyword}
-                    </span>
-                  ))}
-                </div>
+                  return (
+                    <>
+                      <div className="flex items-center justify-between">
+                        <IssueTypeTag type={analysisResult?.issueType || 'pothole'} size="lg" />
+                        <div className="text-right">
+                          <div className="font-display text-2xl font-bold text-blueprint">
+                            {(safeConf * 100).toFixed(0)}%
+                          </div>
+                          <div className="font-display text-xs text-slate-muted uppercase tracking-wider">Confidence</div>
+                        </div>
+                      </div>
+                      
+                      {/* Confidence bar */}
+                      <div className="mt-3 h-2 bg-cream-muted overflow-hidden">
+                        <motion.div
+                          initial={{ width: 0 }}
+                          animate={{ width: `${safeConf * 100}%` }}
+                          transition={{ duration: 1, delay: 0.3 }}
+                          className="h-full bg-gradient-to-r from-blueprint to-accent"
+                        />
+                      </div>
+
+                      {/* AI Reasoning Section */}
+                      <div className="mt-4 pt-4 border-t border-cream-muted">
+                        <div className="flex items-center gap-2 mb-3">
+                          <Lightbulb className="w-4 h-4 text-accent" />
+                          <span className="font-display text-sm font-medium text-slate-muted uppercase tracking-wider">AI Reasoning</span>
+                        </div>
+                        <p className="text-sm text-slate font-body leading-relaxed">
+                          {safeReasoning}
+                        </p>
+                        <div className="flex flex-wrap gap-2 mt-3">
+                          {safeKeywords.map((keyword, i) => (
+                            <span key={i} className="px-2 py-1 bg-accent/10 font-display text-xs text-accent font-medium">
+                              {typeof keyword === 'string' ? keyword : String(keyword || '')}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
 
               {/* Suggested Description Section */}
@@ -210,7 +235,7 @@ export default function AIAnalysisPanel({
                   </div>
                 ) : (
                   <p className="text-sm text-slate font-body leading-relaxed">
-                    {description || 'AI-generated description will appear here after analysis.'}
+                    {displayDescription || 'AI-generated description will appear here after analysis.'}
                   </p>
                 )}
               </div>

@@ -35,22 +35,16 @@
 // export const storage = getStorage(app)
 // export const auth = getAuth(app)
 
+import { uploadImageToCloudinary } from './cloudinary'
+
 /**
- * Upload image to Firebase Storage
+ * Upload image using Cloudinary
  * @param {File} file - The image file to upload
- * @returns {Promise<string>} - The download URL of the uploaded image
+ * @returns {Promise<string>} - The secure URL of the uploaded image
  */
 export async function uploadImage(file) {
-  // TODO: Upload image to Firebase Storage
-  // const storageRef = ref(storage, `issues/${Date.now()}_${file.name}`)
-  // await uploadBytes(storageRef, file)
-  // const downloadURL = await getDownloadURL(storageRef)
-  // return downloadURL
-
-  console.log('[Firebase] Would upload image:', file.name)
-  
-  // Return mock URL for demo
-  return URL.createObjectURL(file)
+  const result = await uploadImageToCloudinary(file)
+  return result.imageUrl
 }
 
 /**

@@ -1,0 +1,12 @@
+{
+  "epoch": 8,
+  "total_epochs": 20,
+  "train_loss": 0.2602,
+  "val_loss": 0.2684,
+  "train_acc": 99.98,
+  "val_acc": 99.66,
+  "val_f1": 0.9935,
+  "is_best": false,
+  "best_epoch": 5,
+  "best_val_f1": 0.9944
+}

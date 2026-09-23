@@ -28,12 +28,14 @@ function timeAgo(date) {
 // Issue type icons
 const issueIcons = {
   pothole: '🕳️',
-  streetlight: '💡',
-  graffiti: '🎨',
+  'damaged-concrete': '🧱',
+  'electrical-pole': '⚡',
+  'damaged-road-sign': '🛑',
+  'dead-animal-pollution': '⚠️',
+  'fallen-tree': '🌳',
   garbage: '🗑️',
-  'road-damage': '🚧',
-  flooding: '🌊',
-  tree: '🌳',
+  graffiti: '🎨',
+  'illegal-parking': '🚫',
   other: '📍',
 }
 

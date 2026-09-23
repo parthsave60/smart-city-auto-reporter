@@ -1,0 +1,11 @@
+{
+  "Damaged concrete structures": 0,
+  "DamagedElectricalPoles": 1,
+  "DamagedRoadSigns": 2,
+  "DeadAnimalsPollution": 3,
+  "FallenTrees": 4,
+  "Garbage": 5,
+  "Graffitti": 6,
+  "IllegalParking": 7,
+  "Potholes and RoadCracks": 8
+}

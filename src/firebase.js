@@ -22,9 +22,15 @@ const app = initializeApp(firebaseConfig);
 // Export services
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
-export const db = getFirestore(app);
-// Use the techshit database
-db._settings = { ...db._settings, databaseId: 'techshit' };
+// Initialize Firestore with 'techshit' database ID
+let firestoreDb;
+try {
+    firestoreDb = getFirestore(app, 'techshit');
+} catch (e) {
+    console.warn('[Firebase] Named database init fallback to default:', e.message);
+    firestoreDb = getFirestore(app);
+}
+export const db = firestoreDb;
 export const storage = getStorage(app);
 export const functions = getFunctions(app, 'us-central1');
 

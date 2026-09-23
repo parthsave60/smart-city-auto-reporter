@@ -1,12 +1,12 @@
 import { motion } from 'framer-motion'
-import { Eye, Sparkles, Map, Flame, Zap, Cloud } from 'lucide-react'
+import { Brain, Sparkles, Map, Flame, Zap, Cloud } from 'lucide-react'
 
 export default function GoogleSection() {
   const googleServices = [
     {
-      name: 'Cloud Vision AI',
-      description: 'Automatic image analysis and issue detection',
-      icon: Eye,
+      name: 'Custom 9-Class AI',
+      description: 'Deep learning civic issue classification model',
+      icon: Brain,
     },
     {
       name: 'Gemini AI',
