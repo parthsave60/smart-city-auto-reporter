@@ -13,7 +13,11 @@ export default function StepUpload({ reportData, updateReportData, onNext }) {
   const [uploadError, setUploadError] = useState(null)
 
   const handleFileSelect = useCallback(async (file) => {
-    if (!file || !file.type || !file.type.startsWith('image/')) {
+    const isImage = file && (
+      (file.type && file.type.startsWith('image/')) ||
+      (file.name && /\.(jpe?g|png|webp|heic|heif|bmp|gif)$/i.test(file.name))
+    );
+    if (!isImage) {
       setUploadError('Please select a valid image file.')
       setIsUploading(false)
       return

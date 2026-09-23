@@ -91,13 +91,17 @@ export default function StepAnalysis({ reportData, updateReportData, onNext, onB
           reason: validationResult?.reason
         })
 
-        const customClass = classificationResult?.predictedClass
+        const customClass = (classificationResult?.predictedClass && 
+          classificationResult.predictedClass !== 'Uncertain / Other' && 
+          classificationResult.predictedClass !== 'Civic Issue (Inspection Needed)')
+          ? classificationResult.predictedClass
+          : classificationResult?.rawClass
         const isCustomValid = customClass && 
           MODEL_CLASSES.includes(customClass) && 
           customClass !== 'Uncertain / Other' && 
           customClass !== 'Civic Issue (Inspection Needed)'
         const customConfidence = Number(classificationResult?.confidence) || 0.0
-        const isCustomConfident = isCustomValid && customConfidence >= 0.40 && !classificationResult?.isUncertain
+        const isCustomConfident = isCustomValid && customConfidence >= 0.35
 
         const isWaterlogging = (validationResult?.category === 'Waterlogging' || validationResult?.issueTypeId === 'waterlogging')
         const isCivicValid = Boolean(validationResult?.civicIssueDetected && validationResult?.category !== 'None')
@@ -163,7 +167,9 @@ export default function StepAnalysis({ reportData, updateReportData, onNext, onB
           // RULE 3: GENUINE 9-CLASS CIVIC ISSUES
           // ============================================================
           finalCategory = customClass
-          finalIssueTypeId = classificationResult?.issueTypeId || 'other'
+          finalIssueTypeId = (classificationResult?.issueTypeId && classificationResult.issueTypeId !== 'other')
+            ? classificationResult.issueTypeId
+            : (classificationResult?.rawIssueTypeId || 'other')
           finalConfidence = customConfidence
           detectionSource = 'custom_model_validated'
         } else if (validationResult?.category && validationResult.category !== 'None') {

@@ -241,15 +241,17 @@ class MultimodalVisionValidator:
         is_result_valid = (
             classifier_result and 
             isinstance(classifier_result, dict) and
-            not classifier_result.get("isUncertain", False) and 
-            classifier_result.get("confidence", 0.0) >= 0.40 and 
-            classifier_result.get("predictedClass") not in ('Unspecified', 'other', 'Civic Issue', 'Civic Issue (Inspection Needed)', 'None', 'Uncertain / Other')
+            classifier_result.get("confidence", 0.0) >= 0.35 and 
+            (
+                (classifier_result.get("predictedClass") and classifier_result.get("predictedClass") not in ('Unspecified', 'other', 'Civic Issue', 'Civic Issue (Inspection Needed)', 'None', 'Uncertain / Other')) or
+                (classifier_result.get("rawClass") and classifier_result.get("rawClass") not in ('Unspecified', 'other', 'Civic Issue', 'None', 'Uncertain / Other'))
+            )
         )
         if not is_result_valid:
             try:
                 from services.classifier.inference import get_classifier_service
                 fresh_res = get_classifier_service().predict(pil_img)
-                if fresh_res and not fresh_res.get("isUncertain", False) and fresh_res.get("confidence", 0.0) >= 0.40:
+                if fresh_res and fresh_res.get("confidence", 0.0) >= 0.35:
                     classifier_result = fresh_res
             except Exception as e:
                 pass
@@ -259,12 +261,20 @@ class MultimodalVisionValidator:
         custom_conf = 0.0
         custom_type = 'other'
         if classifier_result and isinstance(classifier_result, dict):
-            custom_conf = classifier_result.get("confidence", 0.0)
-            custom_uncertain = classifier_result.get("isUncertain", False)
-            custom_class = classifier_result.get("predictedClass")
-            custom_type = classifier_result.get("issueTypeId")
-            if (custom_conf >= 0.40 and not custom_uncertain and custom_class and 
-                custom_class not in ('Unspecified', 'other', 'Civic Issue', 'Civic Issue (Inspection Needed)', 'None', 'Uncertain / Other')):
+            custom_conf = float(classifier_result.get("confidence", 0.0))
+            pred_class = classifier_result.get("predictedClass")
+            raw_class = classifier_result.get("rawClass")
+
+            # Select valid class name (preferring predictedClass if not Uncertain, otherwise rawClass)
+            if pred_class and pred_class not in ('Unspecified', 'other', 'Civic Issue', 'Civic Issue (Inspection Needed)', 'None', 'Uncertain / Other'):
+                custom_class = pred_class
+                custom_type = classifier_result.get("issueTypeId", "other")
+            elif raw_class and raw_class not in ('Unspecified', 'other', 'Civic Issue', 'None', 'Uncertain / Other'):
+                custom_class = raw_class
+                custom_type = classifier_result.get("rawIssueTypeId") or classifier_result.get("issueTypeId", "other")
+
+            # A civic class prediction with confidence >= 0.35 confirms civic issue context
+            if custom_class and custom_conf >= 0.35:
                 has_custom_civic_prediction = True
 
         # 2. Extract deep multimodal scene features with ImageNet backbone (synchronized)

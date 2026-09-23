@@ -18,13 +18,53 @@ export async function compressAndNormalizeImage(file, maxDimension = 1600, quali
     return file;
   }
 
-  // If already a small JPEG, keep as is
-  if (file.size && file.size < 350000 && file.type === 'image/jpeg') {
-    return file;
-  }
+  if (!file) return file;
 
-  return new Promise((resolve) => {
-    try {
+  try {
+    // 1. Modern API: createImageBitmap with imageOrientation: 'from-image'
+    // Automatically normalizes EXIF orientation on mobile cameras (iOS/Android)
+    if (typeof window.createImageBitmap === 'function') {
+      try {
+        const bitmap = await window.createImageBitmap(file, { imageOrientation: 'from-image' });
+        let { width, height } = bitmap;
+
+        if (width > maxDimension || height > maxDimension) {
+          if (width > height) {
+            height = Math.round((height * maxDimension) / width);
+            width = maxDimension;
+          } else {
+            width = Math.round((width * maxDimension) / height);
+            height = maxDimension;
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillRect(0, 0, width, height);
+          ctx.drawImage(bitmap, 0, 0, width, height);
+          bitmap.close();
+
+          const blob = await new Promise((resolve) => {
+            canvas.toBlob(resolve, 'image/jpeg', quality);
+          });
+
+          if (blob && blob.size > 0) {
+            console.log(`[Cloudinary] Image normalized via createImageBitmap: ${(file.size / 1024).toFixed(1)}KB -> ${(blob.size / 1024).toFixed(1)}KB (${width}x${height})`);
+            const normalizedFileName = file.name ? file.name.replace(/\.[^/.]+$/, ".jpg") : "image.jpg";
+            return new File([blob], normalizedFileName, { type: 'image/jpeg' });
+          }
+        }
+      } catch (bitmapErr) {
+        console.warn('[Cloudinary] createImageBitmap failed, falling back to Image element:', bitmapErr);
+      }
+    }
+
+    // 2. Fallback: new window.Image()
+    return await new Promise((resolve) => {
       const img = new window.Image();
       const objectUrl = URL.createObjectURL(file);
 
@@ -52,7 +92,6 @@ export async function compressAndNormalizeImage(file, maxDimension = 1600, quali
           return;
         }
 
-        // Fill white background in case of transparent PNGs
         ctx.fillStyle = '#FFFFFF';
         ctx.fillRect(0, 0, width, height);
         ctx.drawImage(img, 0, 0, width, height);
@@ -60,8 +99,9 @@ export async function compressAndNormalizeImage(file, maxDimension = 1600, quali
         canvas.toBlob(
           (blob) => {
             if (blob && blob.size > 0) {
-              console.log(`[Cloudinary] Image compressed: ${(file.size / 1024).toFixed(1)}KB -> ${(blob.size / 1024).toFixed(1)}KB (${width}x${height})`);
-              resolve(blob);
+              console.log(`[Cloudinary] Image compressed via Image element: ${(file.size / 1024).toFixed(1)}KB -> ${(blob.size / 1024).toFixed(1)}KB (${width}x${height})`);
+              const normalizedFileName = file.name ? file.name.replace(/\.[^/.]+$/, ".jpg") : "image.jpg";
+              resolve(new File([blob], normalizedFileName, { type: 'image/jpeg' }));
             } else {
               resolve(file);
             }
@@ -78,11 +118,11 @@ export async function compressAndNormalizeImage(file, maxDimension = 1600, quali
       };
 
       img.src = objectUrl;
-    } catch (e) {
-      console.warn('[Cloudinary] Canvas compression exception, using raw file:', e);
-      resolve(file);
-    }
-  });
+    });
+  } catch (e) {
+    console.warn('[Cloudinary] Canvas compression exception, using raw file:', e);
+    return file;
+  }
 }
 
 /**
@@ -104,13 +144,16 @@ export async function uploadImageToCloudinary(file, onProgress = null) {
 
   // Generate a strictly unique filename per upload to prevent cross-device/session asset collisions
   const uniqueFilename = `civic_${Date.now()}_${Math.random().toString(36).slice(2, 9)}.jpg`;
+  const uploadFile = (uploadBlob instanceof File)
+    ? uploadBlob
+    : new File([uploadBlob], uniqueFilename, { type: 'image/jpeg' });
 
   // 1. Check if direct unsigned Cloudinary configuration is available
   if (cloudName && uploadPreset) {
     console.log(`[Cloudinary] Uploading isolated asset: ${uniqueFilename} to cloud: ${cloudName}`);
     const uploadUrl = `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`;
     const formData = new FormData();
-    formData.append('file', uploadBlob, uniqueFilename);
+    formData.append('file', uploadFile, uniqueFilename);
     formData.append('upload_preset', uploadPreset);
 
     const controller = new AbortController();
@@ -134,7 +177,7 @@ export async function uploadImageToCloudinary(file, onProgress = null) {
 
       // Ensure delivery URL applies standard format and responsive limits
       let secureUrl = data.secure_url || data.url;
-      if (secureUrl && secureUrl.includes('/image/upload/')) {
+      if (secureUrl && secureUrl.includes('/image/upload/') && !secureUrl.includes('/f_jpg')) {
         secureUrl = secureUrl.replace('/image/upload/', '/image/upload/f_jpg,q_auto,w_1280,c_limit/');
       }
 
@@ -142,7 +185,7 @@ export async function uploadImageToCloudinary(file, onProgress = null) {
         imageUrl: secureUrl,
         publicId: data.public_id,
         format: data.format || 'jpg',
-        bytes: data.bytes || uploadBlob.size,
+        bytes: data.bytes || uploadFile.size,
         width: data.width,
         height: data.height,
       };
@@ -157,7 +200,7 @@ export async function uploadImageToCloudinary(file, onProgress = null) {
   try {
     console.log('[Cloudinary] Attempting upload via backend proxy (/api/upload-image)...');
     const formData = new FormData();
-    formData.append('image', uploadBlob, uniqueFilename);
+    formData.append('image', uploadFile, uniqueFilename);
 
     const res = await fetch('/api/upload-image', {
       method: 'POST',

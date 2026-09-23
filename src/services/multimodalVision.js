@@ -312,15 +312,20 @@ Return JSON ONLY with this schema:
 
   console.warn(`[MultimodalVision] [${requestId}] All validation endpoints failed:`, lastError?.message);
 
-  // If custom model confidently predicted a civic class, allow it safely
-  if (classifierResult && classifierResult.confidence >= 0.40 && !classifierResult.isUncertain && 
-      classifierResult.predictedClass && !['Uncertain / Other', 'None', 'Unspecified', 'Civic Issue (Inspection Needed)'].includes(classifierResult.predictedClass)) {
+  // If custom model predicted a civic class, allow it safely
+  const customClass = (classifierResult?.predictedClass && 
+    !['Uncertain / Other', 'None', 'Unspecified', 'Civic Issue (Inspection Needed)'].includes(classifierResult.predictedClass))
+    ? classifierResult.predictedClass
+    : classifierResult?.rawClass;
+
+  if (classifierResult && classifierResult.confidence >= 0.35 && 
+      customClass && !['Uncertain / Other', 'None', 'Unspecified', 'Civic Issue (Inspection Needed)'].includes(customClass)) {
     return {
       civicIssueDetected: true,
-      category: classifierResult.predictedClass,
+      category: customClass,
       confidence: classifierResult.confidence,
-      reason: `Confirmed ${classifierResult.predictedClass} on public infrastructure.`,
-      issueTypeId: classifierResult.issueTypeId || mapCategoryToIssueTypeId(classifierResult.predictedClass) || 'other',
+      reason: `Confirmed ${customClass} on public infrastructure.`,
+      issueTypeId: classifierResult.issueTypeId || classifierResult.rawIssueTypeId || mapCategoryToIssueTypeId(customClass) || 'other',
       isUnclear: false,
       message: null,
       source: 'classifier_safe_fallback'

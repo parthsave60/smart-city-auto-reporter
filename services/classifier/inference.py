@@ -28,7 +28,7 @@ class CivicClassifierService:
         self.class_to_idx = {}
         self.idx_to_class = {}
         self.class_to_issue_type = {}
-        self.confidence_threshold = 0.55
+        self.confidence_threshold = 0.38
         self.transform = None
         self._inference_lock = threading.Lock()
 
@@ -86,7 +86,7 @@ class CivicClassifierService:
         if os.path.exists(CONFIG_PATH):
             with open(CONFIG_PATH, "r") as f:
                 cfg = json.load(f)
-                self.confidence_threshold = cfg.get("confidence_threshold", 0.55)
+                self.confidence_threshold = cfg.get("confidence_threshold", 0.38)
 
     def _load_model(self):
         num_classes = len(self.class_to_idx)
@@ -201,6 +201,7 @@ class CivicClassifierService:
             "classIndex": -1 if is_uncertain else best_idx,
             "rawClassIndex": best_idx,
             "issueTypeId": "other" if is_uncertain else best_issue_type,
+            "rawIssueTypeId": best_issue_type,
             "isUncertain": is_uncertain,
             "confidenceThreshold": self.confidence_threshold,
             "topPredictions": top_preds
