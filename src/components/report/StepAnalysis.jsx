@@ -104,6 +104,7 @@ export default function StepAnalysis({ reportData, updateReportData, onNext, onB
         const isCustomConfident = isCustomValid && customConfidence >= 0.35
 
         const isWaterlogging = (validationResult?.category === 'Waterlogging' || validationResult?.issueTypeId === 'waterlogging')
+        const isPotholeValidated = (validationResult?.category === 'Potholes and RoadCracks' || validationResult?.issueTypeId === 'pothole')
         const isCivicValid = Boolean(validationResult?.civicIssueDetected && validationResult?.category !== 'None')
 
         // ============================================================
@@ -148,8 +149,9 @@ export default function StepAnalysis({ reportData, updateReportData, onNext, onB
         }
 
         // ============================================================
-        // RULE 2: WATERLOGGING (Identified via Gemini / Vision Validation Layer)
-        // If the custom model predicts Garbage but Gemini identifies Waterlogging, final category is Waterlogging!
+        // RULE 2: MULTIMODAL VALIDATION RESOLUTION (Waterlogging & Potholes)
+        // If the custom model falsely predicts Garbage on a roadway scene but Gemini/Vision identifies Potholes or Waterlogging,
+        // the validated defect category takes precedence!
         // ============================================================
         let finalCategory = null
         let finalIssueTypeId = null
@@ -160,6 +162,12 @@ export default function StepAnalysis({ reportData, updateReportData, onNext, onB
           console.log('[StepAnalysis] Waterlogging confirmed by Gemini/Vision validation. Prioritizing Waterlogging.')
           finalCategory = 'Waterlogging'
           finalIssueTypeId = 'waterlogging'
+          finalConfidence = Math.max(Number(validationResult?.confidence) || 0.90, 0.85)
+          detectionSource = validationResult?.source || 'gemini_multimodal_vision'
+        } else if (isPotholeValidated && (customClass === 'Garbage' || customClass === 'Potholes and RoadCracks' || !isCustomConfident)) {
+          console.log('[StepAnalysis] Pothole confirmed by Gemini/Vision validation. Resolving to Potholes and RoadCracks.')
+          finalCategory = 'Potholes and RoadCracks'
+          finalIssueTypeId = 'pothole'
           finalConfidence = Math.max(Number(validationResult?.confidence) || 0.90, 0.85)
           detectionSource = validationResult?.source || 'gemini_multimodal_vision'
         } else if (isCustomConfident) {
@@ -217,7 +225,7 @@ export default function StepAnalysis({ reportData, updateReportData, onNext, onB
         await new Promise((resolve) => setTimeout(resolve, 300))
 
         setValidationError(null)
-        setUncertaintyNotice(Boolean(classificationResult?.isUncertain && finalCategory !== 'Waterlogging'))
+        setUncertaintyNotice(Boolean(classificationResult?.isUncertain && finalCategory !== 'Waterlogging' && finalCategory !== 'Potholes and RoadCracks'))
 
         updateReportData({
           civicIssueDetected: true,

@@ -54,6 +54,21 @@ WATER_IMAGENET_CLASSES = {
     'canoe', 'gondola', 'speedboat', 'boathouse'
 }
 
+GARBAGE_IMAGENET_CLASSES = {
+    'ashcan', 'plastic bag', 'garbage truck', 'sleeping bag', 'carton', 'crate',
+    'barrel', 'bucket', 'water bottle', 'rain barrel', 'mountain tent', 'dumpster',
+    'mailbag', 'shopping basket', 'grocery store', 'mobile home', 'stretcher', 'moving van',
+    'trash', 'waste', 'litter', 'packet', 'tin can', 'pop bottle', 'bottle cap'
+}
+
+COASTAL_CLASSES = {'seashore', 'lakeside', 'promontory', 'breakwater', 'dam'}
+
+ROAD_DAMAGE_CLASSES = {
+    'sandbar', 'volcano', 'maze', 'cliff', 'geyser', 'manhole cover', 'sea cucumber',
+    'dung beetle', 'ant', 'leatherback turtle', 'electric ray', 'stingray', 'centipede',
+    'patio', 'stone wall', 'megalith', 'whiptail', 'agama'
+}
+
 class MultimodalVisionValidator:
     def __init__(self):
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -373,16 +388,32 @@ class MultimodalVisionValidator:
 
         # 6. Check if the 9-class custom model has confidently classified this into one of the 9 classes
         if has_custom_civic_prediction:
+            resolved_category = custom_class
+            resolved_type = custom_type or 'other'
+            resolved_source = "custom_model"
+            resolved_reason = f"Confirmed {custom_class} on public infrastructure."
+
+            # Verify whether a "Garbage" prediction on roadway is actually road damage / pothole
+            if custom_class == 'Garbage':
+                has_garbage = any(any(g in c.lower() for g in GARBAGE_IMAGENET_CLASSES) for c in top5_classes)
+                has_coastal = any(any(w in c.lower() for w in COASTAL_CLASSES) for c in top5_classes[:2])
+                has_road_surface = any(any(r in c.lower() for r in ROAD_DAMAGE_CLASSES) for c in top5_classes)
+                if not has_garbage and not has_coastal and has_road_surface:
+                    resolved_category = "Potholes and RoadCracks"
+                    resolved_type = "pothole"
+                    resolved_source = "multimodal_vision"
+                    resolved_reason = "Road surface deterioration and pothole cavity detected on roadway infrastructure."
+
             return {
                 "civicIssueDetected": True,
                 "isUnclear": False,
-                "category": custom_class,
-                "issueTypeId": custom_type or 'other',
+                "category": resolved_category,
+                "issueTypeId": resolved_type,
                 "confidence": float(round(custom_conf, 2)),
-                "reason": f"Confirmed {custom_class} on public infrastructure.",
-                "reasoning": f"Confirmed {custom_class} on public infrastructure.",
+                "reason": resolved_reason,
+                "reasoning": resolved_reason,
                 "message": None,
-                "source": "custom_model"
+                "source": resolved_source
             }
 
         # 7. If neither system can verify a civic issue
