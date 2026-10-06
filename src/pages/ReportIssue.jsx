@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import StepUpload from '../components/report/StepUpload'
@@ -43,11 +43,13 @@ export default function ReportIssue() {
 
   const { user, userProfile, isAuthority } = useAuth();
   const [submitting, setSubmitting] = useState(false)
+  const submittingRef = useRef(false)
   const [submissionStatus, setSubmissionStatus] = useState(null) // null | 'success' | 'error'
   const [submissionError, setSubmissionError] = useState('')
 
   const handleSubmit = async () => {
-    if (submitting) return;
+    if (submitting || submittingRef.current) return;
+    submittingRef.current = true;
 
     if (!reportData.imageUrl) {
       alert('Please upload an issue photo before submitting.');
@@ -158,6 +160,7 @@ export default function ReportIssue() {
       setSubmissionError(error.message || 'Failed to submit report. Please try again.');
     } finally {
       setSubmitting(false);
+      submittingRef.current = false;
       console.log('[ReportSubmit] Submitting state cleared.');
     }
   }

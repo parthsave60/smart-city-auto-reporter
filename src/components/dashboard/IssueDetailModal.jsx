@@ -19,7 +19,7 @@ import { IssueTypeTag, StatusBadge } from '../ui'
 import { useState, useEffect } from 'react'
 import { doc, deleteDoc } from 'firebase/firestore'
 import { db } from '../../firebase'
-import { updateReportStatus } from '../../services/dataService'
+import { updateReportStatus, deleteIssueReport } from '../../services/dataService'
 import { useAuth } from '../../context/AuthContext'
 import { REPORT_STATUSES } from '../../utils/userUtils'
 
@@ -81,18 +81,21 @@ export default function IssueDetailModal({ issue, isOpen, onClose, onUpdated }) 
   }
 
   const handleDeleteIssue = async () => {
+    if (isDeleting || !issue) return
     setIsDeleting(true)
     setUpdateError(null)
 
     try {
-      const issueRef = doc(db, 'issues', issue.id)
-      await deleteDoc(issueRef)
+      await deleteIssueReport(issue.id, issue.imageUrl)
       setIsDeleting(false)
-      if (onUpdated) onUpdated({ id: issue.id, deleted: true });
+      setShowDeleteConfirm(false)
+      if (onUpdated) onUpdated({ id: issue.id, deleted: true })
       onClose()
     } catch (error) {
       console.error('Error deleting issue:', error)
       setUpdateError(error.message || 'Failed to delete report.')
+      setIsDeleting(false)
+    } finally {
       setIsDeleting(false)
     }
   }

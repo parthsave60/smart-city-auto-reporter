@@ -654,6 +654,7 @@ export default function Dashboard() {
             if (updatedIssue) {
               if (updatedIssue.deleted) {
                 setIssues((prev) => prev.filter((i) => i.id !== updatedIssue.id));
+                setSelectedIssue(null);
               } else {
                 setIssues((prev) =>
                   prev.map((i) => (i.id === updatedIssue.id ? { ...i, ...updatedIssue } : i))

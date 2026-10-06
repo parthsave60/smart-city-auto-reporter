@@ -12,6 +12,7 @@ import {
   getDoc, 
   getDocs, 
   setDoc, 
+  deleteDoc, 
   addDoc, 
   updateDoc, 
   query, 
@@ -73,12 +74,14 @@ function saveLocalReports(reports) {
  * @returns {Promise<string>} - Saved issue ID
  */
 export async function saveIssueReport(issueData) {
-  const localId = `issue_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+  // Generate consistent Firestore doc reference upfront so ID matches across local and remote
+  const issueDocRef = doc(collection(db, 'issues'));
+  const reportId = issueDocRef.id;
   const nowIso = new Date().toISOString();
 
   const formattedIssue = {
     ...issueData,
-    id: localId,
+    id: reportId,
     status: issueData.status || 'Submitted',
     createdAt: nowIso,
     statusHistory: issueData.statusHistory || [
@@ -91,36 +94,85 @@ export async function saveIssueReport(issueData) {
     ]
   };
 
-  // 1. Immediately cache locally
+  // 1. Immediately cache locally with the exact authoritative ID
   const currentLocal = getLocalReports();
-  saveLocalReports([formattedIssue, ...currentLocal]);
+  const filteredLocal = currentLocal.filter(item => item.id !== reportId);
+  saveLocalReports([formattedIssue, ...filteredLocal]);
 
-  // 2. Attempt Firestore remote write with a strict 2.5s timeout
+  // 2. Attempt Firestore remote write with a resilient timeout using the exact same doc reference
   try {
-    const docRef = await withTimeout(
-      addDoc(collection(db, 'issues'), {
+    await withTimeout(
+      setDoc(issueDocRef, {
         ...issueData,
+        id: reportId,
         status: issueData.status || 'Submitted',
         statusHistory: formattedIssue.statusHistory,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       }),
-      2500,
+      4000,
       'Firestore write timeout (resilient local mode activated)'
     );
 
-    console.log('[DataService] Firestore report saved with ID:', docRef.id);
-    
-    // Update local copy with actual Firestore doc ID
-    const updated = getLocalReports().map(item => 
-      item.id === localId ? { ...item, id: docRef.id } : item
-    );
-    saveLocalReports(updated);
-    return docRef.id;
+    console.log('[DataService] Firestore report saved with ID:', reportId);
+    return reportId;
   } catch (firestoreError) {
     console.warn('[DataService] Remote write fallback active:', firestoreError.message);
-    return localId;
+    return reportId;
   }
+}
+
+/**
+ * Delete an issue report from both local cache and Firestore
+ * @param {string} issueId - Document ID
+ * @param {string} [imageUrl] - Optional image URL to catch legacy duplicate documents
+ * @returns {Promise<boolean>}
+ */
+export async function deleteIssueReport(issueId, imageUrl = null) {
+  if (!issueId) return false;
+
+  // 1. Immediately remove from local storage cache
+  try {
+    const currentLocal = getLocalReports();
+    const filtered = currentLocal.filter(item => {
+      if (item.id === issueId) return false;
+      if (imageUrl && item.imageUrl === imageUrl) return false;
+      return true;
+    });
+    saveLocalReports(filtered);
+    console.log('[DataService] Report removed from local cache:', issueId);
+  } catch (err) {
+    console.warn('[DataService] Local cache deletion warning:', err);
+  }
+
+  // 2. Remove from Firestore with a resilient timeout
+  try {
+    const issueRef = doc(db, 'issues', issueId);
+    await withTimeout(deleteDoc(issueRef), 4000, 'Firestore deleteDoc timeout');
+    console.log('[DataService] Report deleted from Firestore:', issueId);
+  } catch (err) {
+    console.warn('[DataService] Firestore primary delete notice:', err.message);
+  }
+
+  // 3. If an imageUrl was provided, clean up any legacy duplicates in Firestore
+  if (imageUrl) {
+    try {
+      const q = query(collection(db, 'issues'), where('imageUrl', '==', imageUrl));
+      const snap = await withTimeout(getDocs(q), 3000, 'Firestore secondary cleanup timeout');
+      for (const d of snap.docs) {
+        if (d.id !== issueId) {
+          try {
+            await deleteDoc(d.ref);
+            console.log('[DataService] Legacy duplicate doc deleted from Firestore:', d.id);
+          } catch {}
+        }
+      }
+    } catch (cleanErr) {
+      console.warn('[DataService] Legacy duplicate cleanup notice:', cleanErr.message);
+    }
+  }
+
+  return true;
 }
 
 /**
@@ -131,7 +183,7 @@ export async function fetchAllReports() {
   let firestoreIssues = [];
   try {
     const q = query(collection(db, 'issues'), orderBy('createdAt', 'desc'));
-    const snapshot = await withTimeout(getDocs(q), 4000, 'Firestore query timeout');
+    const snapshot = await withTimeout(getDocs(q), 5000, 'Firestore query timeout');
     firestoreIssues = snapshot.docs.map(docSnap => {
       const d = docSnap.data();
       return {
@@ -145,31 +197,71 @@ export async function fetchAllReports() {
     console.warn('[DataService] Firestore fetchAllReports notice:', err.message);
   }
 
-  // Merge Firestore issues with local issues (respecting more recent local status updates)
+  // Merge Firestore issues with local issues and deduplicate
   const localIssues = getLocalReports();
   const mergedMap = new Map();
+  const seenSignatures = new Set();
 
-  firestoreIssues.forEach(item => mergedMap.set(item.id, item));
+  firestoreIssues.forEach(item => {
+    // Unique signature per image to prevent duplicate remote records
+    const sig = item.cloudinaryPublicId 
+      ? `c:${item.cloudinaryPublicId}` 
+      : item.imageUrl 
+      ? `u:${item.imageUrl}` 
+      : null;
+
+    if (sig) {
+      if (seenSignatures.has(sig)) return;
+      seenSignatures.add(sig);
+    }
+    mergedMap.set(item.id, item);
+  });
+
+  let cacheChanged = false;
+  const cleanedLocal = [];
 
   localIssues.forEach(localItem => {
-    if (!mergedMap.has(localItem.id)) {
-      mergedMap.set(localItem.id, localItem);
-    } else {
-      const remoteItem = mergedMap.get(localItem.id);
-      const localUpdated = new Date(localItem.updatedAt || localItem.createdAt || 0).getTime();
-      const remoteUpdated = new Date(remoteItem.updatedAt || remoteItem.createdAt || 0).getTime();
+    const sig = localItem.cloudinaryPublicId 
+      ? `c:${localItem.cloudinaryPublicId}` 
+      : localItem.imageUrl 
+      ? `u:${localItem.imageUrl}` 
+      : null;
 
-      // If local item has a more recent timestamp or updated status, prioritize local status
-      if (localUpdated >= remoteUpdated && localItem.status) {
-        mergedMap.set(localItem.id, {
-          ...remoteItem,
-          ...localItem,
-          status: localItem.status,
-          statusHistory: localItem.statusHistory || remoteItem.statusHistory
-        });
+    if (mergedMap.has(localItem.id) || (sig && seenSignatures.has(sig))) {
+      const existingId = mergedMap.has(localItem.id)
+        ? localItem.id
+        : Array.from(mergedMap.values()).find(r =>
+            (localItem.cloudinaryPublicId && r.cloudinaryPublicId === localItem.cloudinaryPublicId) ||
+            (localItem.imageUrl && r.imageUrl === localItem.imageUrl)
+          )?.id;
+
+      if (existingId && mergedMap.has(existingId)) {
+        const remoteItem = mergedMap.get(existingId);
+        const localUpdated = new Date(localItem.updatedAt || localItem.createdAt || 0).getTime();
+        const remoteUpdated = new Date(remoteItem.updatedAt || remoteItem.createdAt || 0).getTime();
+
+        if (localUpdated >= remoteUpdated && localItem.status) {
+          mergedMap.set(existingId, {
+            ...remoteItem,
+            ...localItem,
+            id: existingId,
+            status: localItem.status,
+            statusHistory: localItem.statusHistory || remoteItem.statusHistory
+          });
+        }
       }
+      cleanedLocal.push({ ...localItem, id: existingId || localItem.id });
+      if (!existingId || existingId !== localItem.id) cacheChanged = true;
+    } else {
+      if (sig) seenSignatures.add(sig);
+      mergedMap.set(localItem.id, localItem);
+      cleanedLocal.push(localItem);
     }
   });
+
+  if (cacheChanged || cleanedLocal.length !== localIssues.length) {
+    saveLocalReports(cleanedLocal);
+  }
 
   const merged = Array.from(mergedMap.values());
   return merged.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
@@ -190,7 +282,7 @@ export async function fetchUserReports(userId) {
       where('userId', '==', userId),
       orderBy('createdAt', 'desc')
     );
-    const snapshot = await withTimeout(getDocs(q), 4000, 'Firestore query timeout');
+    const snapshot = await withTimeout(getDocs(q), 5000, 'Firestore query timeout');
     firestoreIssues = snapshot.docs.map(docSnap => {
       const d = docSnap.data();
       return {
@@ -204,26 +296,57 @@ export async function fetchUserReports(userId) {
     console.warn('[DataService] Firestore fetchUserReports notice:', err.message);
   }
 
-  // Merge with local issues filtered for this user
+  // Merge with local issues filtered for this user and deduplicate
   const localIssues = getLocalReports().filter(item => item.userId === userId);
   const mergedMap = new Map();
+  const seenSignatures = new Set();
 
-  firestoreIssues.forEach(item => mergedMap.set(item.id, item));
+  firestoreIssues.forEach(item => {
+    const sig = item.cloudinaryPublicId 
+      ? `c:${item.cloudinaryPublicId}` 
+      : item.imageUrl 
+      ? `u:${item.imageUrl}` 
+      : null;
+
+    if (sig) {
+      if (seenSignatures.has(sig)) return;
+      seenSignatures.add(sig);
+    }
+    mergedMap.set(item.id, item);
+  });
+
   localIssues.forEach(localItem => {
-    if (!mergedMap.has(localItem.id)) {
-      mergedMap.set(localItem.id, localItem);
-    } else {
-      const remoteItem = mergedMap.get(localItem.id);
-      const localUpdated = new Date(localItem.updatedAt || localItem.createdAt || 0).getTime();
-      const remoteUpdated = new Date(remoteItem.updatedAt || remoteItem.createdAt || 0).getTime();
+    const sig = localItem.cloudinaryPublicId 
+      ? `c:${localItem.cloudinaryPublicId}` 
+      : localItem.imageUrl 
+      ? `u:${localItem.imageUrl}` 
+      : null;
 
-      if (localUpdated >= remoteUpdated && localItem.status) {
-        mergedMap.set(localItem.id, {
-          ...remoteItem,
-          ...localItem,
-          status: localItem.status
-        });
+    if (mergedMap.has(localItem.id) || (sig && seenSignatures.has(sig))) {
+      const existingId = mergedMap.has(localItem.id)
+        ? localItem.id
+        : Array.from(mergedMap.values()).find(r =>
+            (localItem.cloudinaryPublicId && r.cloudinaryPublicId === localItem.cloudinaryPublicId) ||
+            (localItem.imageUrl && r.imageUrl === localItem.imageUrl)
+          )?.id;
+
+      if (existingId && mergedMap.has(existingId)) {
+        const remoteItem = mergedMap.get(existingId);
+        const localUpdated = new Date(localItem.updatedAt || localItem.createdAt || 0).getTime();
+        const remoteUpdated = new Date(remoteItem.updatedAt || remoteItem.createdAt || 0).getTime();
+
+        if (localUpdated >= remoteUpdated && localItem.status) {
+          mergedMap.set(existingId, {
+            ...remoteItem,
+            ...localItem,
+            id: existingId,
+            status: localItem.status
+          });
+        }
       }
+    } else {
+      if (sig) seenSignatures.add(sig);
+      mergedMap.set(localItem.id, localItem);
     }
   });
 
@@ -376,6 +499,7 @@ export default {
   fetchAllReports,
   fetchUserReports,
   updateReportStatus,
+  deleteIssueReport,
   saveUserProfile,
   getUserProfile,
 };

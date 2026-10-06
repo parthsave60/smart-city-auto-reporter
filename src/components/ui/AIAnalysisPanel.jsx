@@ -145,12 +145,6 @@ export default function AIAnalysisPanel({
                     : 0.89;
                   const numConf = typeof rawConf === 'number' && !isNaN(rawConf) ? rawConf : (Number(rawConf) || 0.89);
                   const safeConf = Math.min(Math.max(numConf, 0), 1);
-                  const rawKeywords = analysisResult?.keywords;
-                  const safeKeywords = Array.isArray(rawKeywords)
-                    ? rawKeywords
-                    : typeof rawKeywords === 'string'
-                    ? rawKeywords.split(',').map(s => s.trim()).filter(Boolean)
-                    : ['road damage', 'asphalt', 'pothole', 'infrastructure'];
                   const rawReasoning = analysisResult?.reasoning;
                   const safeReasoning = typeof rawReasoning === 'string' && rawReasoning
                     ? rawReasoning
@@ -187,13 +181,6 @@ export default function AIAnalysisPanel({
                         <p className="text-sm text-slate font-body leading-relaxed">
                           {safeReasoning}
                         </p>
-                        <div className="flex flex-wrap gap-2 mt-3">
-                          {safeKeywords.map((keyword, i) => (
-                            <span key={i} className="px-2 py-1 bg-accent/10 font-display text-xs text-accent font-medium">
-                              {typeof keyword === 'string' ? keyword : String(keyword || '')}
-                            </span>
-                          ))}
-                        </div>
                       </div>
                     </>
                   );
